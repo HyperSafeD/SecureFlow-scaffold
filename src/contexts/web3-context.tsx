@@ -17,7 +17,6 @@ import {
   scValToNative,
   TransactionBuilder,
   Operation,
-  xdr,
 } from "@stellar/stellar-sdk";
 import {
   wallet,
@@ -361,7 +360,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                 contract.call("is_job_creation_paused")
               );
 
-              if (result.errorResult) {
+              // Check if simulation failed
+              if ("errorResult" in result && result.errorResult) {
                 console.warn(
                   "Error checking pause status:",
                   result.errorResult
@@ -369,7 +369,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                 return false; // Default to not paused
               }
 
-              if (result.returnValue) {
+              // Check if simulation succeeded
+              if ("returnValue" in result && result.returnValue) {
                 try {
                   return scValToNative(result.returnValue);
                 } catch {
@@ -418,11 +419,15 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               contract.call(method, ...methodArgs)
             );
 
-            if (result.errorResult) {
-              throw new Error(result.errorResult.value().toString());
+            // Check if simulation failed
+            if ("errorResult" in result && result.errorResult) {
+              const errorValue =
+                (result.errorResult as any).value?.() || result.errorResult;
+              throw new Error(errorValue.toString());
             }
 
-            if (result.returnValue) {
+            // Check if simulation succeeded
+            if ("returnValue" in result && result.returnValue) {
               try {
                 return scValToNative(result.returnValue);
               } catch {
@@ -538,16 +543,20 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             console.log("Simulating set_job_creation_paused transaction...");
             const simulation = await server.simulateTransaction(tx);
             console.log("Simulation result:", simulation);
-            console.log("Simulation auth entries:", simulation?.auth);
-            console.log(
-              "Simulation auth count:",
-              simulation?.auth?.length || 0
-            );
+            // Check for auth entries in the simulation result
+            const authEntries =
+              "auth" in simulation && simulation.auth ? simulation.auth : [];
+            console.log("Simulation auth entries:", authEntries);
+            console.log("Simulation auth count:", authEntries.length || 0);
 
-            if (simulation.errorResult) {
+            // Check if simulation failed
+            if ("errorResult" in simulation && simulation.errorResult) {
               console.error("Simulation error:", simulation.errorResult);
+              const errorValue =
+                (simulation.errorResult as any).value?.() ||
+                simulation.errorResult;
               throw new Error(
-                `Transaction simulation failed: ${simulation.errorResult.toString()}`
+                `Transaction simulation failed: ${errorValue.toString()}`
               );
             }
             console.log("Simulation successful, preparing transaction...");
@@ -556,30 +565,35 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             const prepared = await server.prepareTransaction(tx);
 
             // Check if simulation returned auth entries that need to be signed
-            if (simulation && simulation.auth && simulation.auth.length > 0) {
+            if (authEntries && authEntries.length > 0) {
               console.log("Auth entries found, signing auth entries first...");
-              console.log("Auth entries count:", simulation.auth.length);
+              console.log("Auth entries count:", authEntries.length);
 
               // Sign auth entries first, then the transaction
-              const { signAuthEntries, signTransaction } = await import(
-                "@stellar/freighter-api"
+              const { signAuthEntry } = await import("@stellar/freighter-api");
+
+              // Sign each auth entry individually
+              console.log("Signing auth entries with:", {
+                authEntriesCount: authEntries.length,
+                networkPassphrase: network.networkPassphrase,
+                address: walletState.address,
+              });
+
+              const signedAuthEntries = await Promise.all(
+                authEntries.map(async (entry: any) => {
+                  const entryXdr = entry.toXDR("base64");
+                  const signed = await signAuthEntry(entryXdr, {
+                    networkPassphrase: network.networkPassphrase,
+                    address: walletState.address,
+                  });
+                  return (
+                    signed.signedAuthEntry ||
+                    signed.signedAuthEntryXdr ||
+                    entryXdr
+                  );
+                })
               );
 
-              // Sign the auth entries
-              console.log("Signing auth entries with:", {
-                authEntries: simulation.auth.map((entry: any) =>
-                  entry.toXDR("base64")
-                ),
-                networkPassphrase: network.networkPassphrase,
-                accountToSign: walletState.address,
-              });
-              const signedAuthEntries = await signAuthEntries(
-                simulation.auth.map((entry: any) => entry.toXDR("base64")),
-                {
-                  networkPassphrase: network.networkPassphrase,
-                  accountToSign: walletState.address,
-                }
-              );
               console.log("Auth entries signed, result:", signedAuthEntries);
 
               if (!signedAuthEntries || signedAuthEntries.length === 0) {
@@ -600,6 +614,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
               // Replace auth entries in the operation
               // Parse signed auth entries first
+              const { xdr } = await import("@stellar/stellar-sdk");
               const parsedSignedAuth = signedAuthEntries.map((signed: string) =>
                 xdr.SorobanAuthorizationEntry.fromXDR(signed, "base64")
               );
@@ -616,7 +631,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                 const op = operations[0];
                 if (op.type === "invokeHostFunction") {
                   // Get the host function from the original operation
-                  const hostFn = op.function;
+                  const hostFn =
+                    (op as any).function || (op as any).hostFunction;
 
                   // Create a new InvokeHostFunction operation with signed auth entries
                   // Use Operation.invokeHostFunction with the host function and signed auth
@@ -631,12 +647,16 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                   );
 
                   // Build transaction with the new operation
+                  const timeout =
+                    (txWithAuth as any).maxTime ||
+                    (txWithAuth as any).timeBounds?.maxTime ||
+                    30;
                   const newTx = new TransactionBuilder(freshAccount, {
                     fee: txWithAuth.fee,
                     networkPassphrase: network.networkPassphrase,
                   })
                     .addOperation(newOp)
-                    .setTimeout(txWithAuth.maxTime || 30)
+                    .setTimeout(timeout)
                     .build();
 
                   // Prepare the new transaction (to get resource fees)
@@ -653,7 +673,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                     newPrepared.toXDR(),
                     {
                       networkPassphrase: network.networkPassphrase,
-                      accountToSign: walletState.address,
+                      address: walletState.address,
                     }
                   );
                   console.log("Sign result (with auth):", signResult);
@@ -679,16 +699,20 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                   // Check for errors in the response
                   if (
                     sendResponse.status === "ERROR" ||
-                    sendResponse.errorResult
+                    ("errorResult" in sendResponse && sendResponse.errorResult)
                   ) {
                     let errorMessage = "Transaction failed";
-                    if (sendResponse.errorResult) {
+                    const errorResult =
+                      "errorResult" in sendResponse && sendResponse.errorResult
+                        ? sendResponse.errorResult
+                        : null;
+                    if (errorResult) {
                       try {
-                        let errorValue = sendResponse.errorResult;
-                        if (typeof errorValue.value === "function") {
-                          errorValue = errorValue.value();
-                        } else if (errorValue.value) {
-                          errorValue = errorValue.value;
+                        let errorValue: any = errorResult;
+                        if (typeof (errorValue as any).value === "function") {
+                          errorValue = (errorValue as any).value();
+                        } else if ((errorValue as any).value) {
+                          errorValue = (errorValue as any).value;
                         }
                         if (typeof errorValue === "string") {
                           errorMessage = `Transaction failed: ${errorValue}`;
@@ -700,12 +724,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                           errorMessage = `Transaction failed: ${JSON.stringify(errorValue)}`;
                         }
                       } catch (e) {
-                        errorMessage = `Transaction failed: ${JSON.stringify(sendResponse.errorResult)}`;
+                        errorMessage = `Transaction failed: ${JSON.stringify(errorResult)}`;
                       }
                     }
                     console.error("Transaction error:", {
                       status: sendResponse.status,
-                      errorResult: sendResponse.errorResult,
+                      errorResult: errorResult,
                       fullResponse: sendResponse,
                       errorMessage,
                     });
@@ -826,9 +850,13 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               .setTimeout(30)
               .build();
             const simulation = await server.simulateTransaction(tx);
-            if (simulation.errorResult) {
+            // Check if simulation failed
+            if ("errorResult" in simulation && simulation.errorResult) {
+              const errorValue =
+                (simulation.errorResult as any).value?.() ||
+                simulation.errorResult;
               throw new Error(
-                `Transaction simulation failed: ${simulation.errorResult.toString()}`
+                `Transaction simulation failed: ${errorValue.toString()}`
               );
             }
             const prepared = await server.prepareTransaction(tx);
@@ -854,9 +882,13 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               .setTimeout(30)
               .build();
             const simulation = await server.simulateTransaction(tx);
-            if (simulation.errorResult) {
+            // Check if simulation failed
+            if ("errorResult" in simulation && simulation.errorResult) {
+              const errorValue =
+                (simulation.errorResult as any).value?.() ||
+                simulation.errorResult;
               throw new Error(
-                `Transaction simulation failed: ${simulation.errorResult.toString()}`
+                `Transaction simulation failed: ${errorValue.toString()}`
               );
             }
             const prepared = await server.prepareTransaction(tx);
@@ -929,7 +961,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             console.log("Transaction sent successfully:", sendResponse);
 
             // Wait for transaction confirmation if status is PENDING
-            let finalResponse = sendResponse;
+            let finalResponse: any = sendResponse;
             if (sendResponse.status === "PENDING" && sendResponse.hash) {
               console.log("Transaction pending, waiting for confirmation...");
               console.log("Transaction hash:", sendResponse.hash);
@@ -944,9 +976,19 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               ) {
                 await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
                 try {
-                  finalResponse = await server.getTransaction(
+                  const txStatus = await server.getTransaction(
                     sendResponse.hash
                   );
+                  // Convert GetTransactionResponse to SendTransactionResponse format
+                  finalResponse = {
+                    ...sendResponse,
+                    status: txStatus.status,
+                    errorResult:
+                      "errorResult" in txStatus
+                        ? txStatus.errorResult
+                        : undefined,
+                    hash: sendResponse.hash,
+                  };
                   console.log(
                     `Transaction status check ${attempts + 1}:`,
                     finalResponse.status
@@ -968,51 +1010,135 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             }
 
             // Check for errors in the response
-            if (finalResponse.status === "ERROR" || finalResponse.errorResult) {
+            const errorResult =
+              "errorResult" in finalResponse && finalResponse.errorResult
+                ? finalResponse.errorResult
+                : null;
+            if (finalResponse.status === "ERROR" || errorResult) {
               let errorMessage = "Transaction failed";
 
-              if (finalResponse.errorResult) {
+              if (errorResult) {
                 // errorResult might be an object with a value() method or already be the value
                 try {
                   // Try to extract error message from errorResult
-                  let errorValue = finalResponse.errorResult;
+                  let errorValue: any = errorResult;
 
                   // If it has a value() method, call it
-                  if (typeof errorValue.value === "function") {
-                    errorValue = errorValue.value();
-                  } else if (errorValue.value) {
-                    errorValue = errorValue.value;
+                  if (typeof (errorValue as any).value === "function") {
+                    errorValue = (errorValue as any).value();
+                  } else if ((errorValue as any).value) {
+                    errorValue = (errorValue as any).value;
                   }
 
                   // Try to extract readable error message
                   if (typeof errorValue === "string") {
-                    errorMessage = `Transaction failed: ${errorValue}`;
+                    errorMessage = errorValue;
                   } else if (errorValue?.message) {
-                    errorMessage = `Transaction failed: ${errorValue.message}`;
-                  } else if (errorValue?.toString) {
-                    errorMessage = `Transaction failed: ${errorValue.toString()}`;
+                    errorMessage = errorValue.message;
+                  } else if (
+                    errorValue?.toString &&
+                    typeof errorValue.toString === "function"
+                  ) {
+                    const errorStr = errorValue.toString();
+                    if (errorStr !== "[object Object]") {
+                      errorMessage = errorStr;
+                    } else {
+                      // Try to extract from diagnostic events if available
+                      if (finalResponse.diagnosticEvents) {
+                        const events = finalResponse.diagnosticEvents;
+                        const errorEvent = events.find(
+                          (e: any) => e.topics && e.topics.includes("error")
+                        );
+                        if (errorEvent && errorEvent.data) {
+                          if (Array.isArray(errorEvent.data)) {
+                            errorMessage = errorEvent.data.join(": ");
+                          } else if (typeof errorEvent.data === "string") {
+                            errorMessage = errorEvent.data;
+                          } else {
+                            errorMessage = JSON.stringify(errorEvent.data);
+                          }
+                        }
+                      }
+                      if (errorMessage === "Transaction failed") {
+                        errorMessage = JSON.stringify(errorValue);
+                      }
+                    }
                   } else {
-                    errorMessage = `Transaction failed: ${JSON.stringify(errorValue)}`;
+                    // Try to extract from diagnostic events if available
+                    if (finalResponse.diagnosticEvents) {
+                      const events = finalResponse.diagnosticEvents;
+                      const errorEvent = events.find(
+                        (e: any) => e.topics && e.topics.includes("error")
+                      );
+                      if (errorEvent && errorEvent.data) {
+                        if (Array.isArray(errorEvent.data)) {
+                          errorMessage = errorEvent.data.join(": ");
+                        } else if (typeof errorEvent.data === "string") {
+                          errorMessage = errorEvent.data;
+                        } else {
+                          errorMessage = JSON.stringify(errorEvent.data);
+                        }
+                      }
+                    }
+                    if (errorMessage === "Transaction failed") {
+                      errorMessage = JSON.stringify(errorValue);
+                    }
                   }
                 } catch (e) {
-                  // Fallback to stringifying the whole errorResult
-                  errorMessage = `Transaction failed: ${JSON.stringify(finalResponse.errorResult)}`;
+                  // Fallback: try to extract from diagnostic events
+                  if (finalResponse.diagnosticEvents) {
+                    const events = finalResponse.diagnosticEvents;
+                    const errorEvent = events.find(
+                      (e: any) => e.topics && e.topics.includes("error")
+                    );
+                    if (errorEvent && errorEvent.data) {
+                      if (Array.isArray(errorEvent.data)) {
+                        errorMessage = errorEvent.data.join(": ");
+                      } else if (typeof errorEvent.data === "string") {
+                        errorMessage = errorEvent.data;
+                      } else {
+                        errorMessage = JSON.stringify(errorEvent.data);
+                      }
+                    }
+                  }
+                  if (errorMessage === "Transaction failed") {
+                    errorMessage = `Transaction failed: ${JSON.stringify(errorResult)}`;
+                  }
                 }
               } else if (finalResponse.status === "ERROR") {
-                errorMessage = `Transaction error: ${JSON.stringify(finalResponse)}`;
+                // Try to extract from diagnostic events
+                if (finalResponse.diagnosticEvents) {
+                  const events = finalResponse.diagnosticEvents;
+                  const errorEvent = events.find(
+                    (e: any) => e.topics && e.topics.includes("error")
+                  );
+                  if (errorEvent && errorEvent.data) {
+                    if (Array.isArray(errorEvent.data)) {
+                      errorMessage = errorEvent.data.join(": ");
+                    } else if (typeof errorEvent.data === "string") {
+                      errorMessage = errorEvent.data;
+                    } else {
+                      errorMessage = JSON.stringify(errorEvent.data);
+                    }
+                  }
+                }
+                if (errorMessage === "Transaction failed") {
+                  errorMessage = `Transaction error: ${JSON.stringify(finalResponse)}`;
+                }
               }
 
               console.error("Transaction error:", {
                 status: finalResponse.status,
-                errorResult: finalResponse.errorResult,
+                errorResult: errorResult,
                 fullResponse: finalResponse,
                 errorMessage,
+                diagnosticEvents: finalResponse.diagnosticEvents,
               });
               throw new Error(errorMessage);
             }
 
             // Extract transaction hash from response
-            const txHash = finalResponse.hash || finalResponse.id || "";
+            const txHash = finalResponse.hash || "";
             if (!txHash) {
               throw new Error("Transaction sent but no hash returned");
             }

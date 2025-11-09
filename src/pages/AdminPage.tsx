@@ -9,10 +9,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { useWeb3 } from "@/contexts/web3-context";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { useToast } from "@/hooks/use-toast";
 import { CONTRACTS } from "@/lib/web3/config";
+import { usePauseJobCreation, useUnpauseJobCreation } from "@/hooks/use-admin";
+import { contractService } from "@/lib/web3/contract-service";
+import { useWeb3 } from "@/contexts/web3-context";
 
 // Unused imports removed: AdminHeader, AdminStats, ContractControls, AdminLoading
 import { DisputeResolution } from "@/components/admin/dispute-resolution";
@@ -34,10 +36,13 @@ export default function AdminPage() {
   const { wallet, getContract } = useWeb3();
   const { isAdmin, loading: adminLoading } = useAdminStatus();
   const { toast } = useToast();
+  const pauseJobCreation = usePauseJobCreation();
+  const unpauseJobCreation = useUnpauseJobCreation();
   const [isPaused, setIsPaused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [contractOwner, setContractOwner] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
   const [actionType, setActionType] = useState<
     "pause" | "unpause" | "withdraw" | null
   >(null);
@@ -55,25 +60,47 @@ export default function AdminPage() {
   });
 
   useEffect(() => {
-    if (wallet.isConnected) {
+    if (wallet.isConnected && wallet.address) {
       checkPausedStatus();
       fetchContractOwner();
       fetchContractStats();
     }
-  }, [wallet.isConnected]);
+  }, [wallet.isConnected, wallet.address]);
 
   const fetchContractOwner = async () => {
     try {
+      // Get owner from contract
       const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      const owner = await contract.owner();
-      setContractOwner(owner);
-    } catch (error) {}
+      if (contract) {
+        const owner = await contract.owner();
+        if (owner) {
+          setContractOwner(owner);
+        } else {
+          // Fallback to env variable
+          const ownerFromEnv = import.meta.env.VITE_OWNER_ADDRESS;
+          if (ownerFromEnv) {
+            setContractOwner(ownerFromEnv);
+          }
+        }
+      } else {
+        // Fallback to env variable
+        const ownerFromEnv = import.meta.env.VITE_OWNER_ADDRESS;
+        if (ownerFromEnv) {
+          setContractOwner(ownerFromEnv);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching contract owner:", error);
+      // Fallback to env variable
+      const ownerFromEnv = import.meta.env.VITE_OWNER_ADDRESS;
+      if (ownerFromEnv) {
+        setContractOwner(ownerFromEnv);
+      }
+    }
   };
 
   const fetchContractStats = async () => {
     try {
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-
       // Note: The Stellar contract may not have these exact methods
       // These are placeholders - adjust based on your actual contract methods
       // For now, set default values
@@ -99,28 +126,13 @@ export default function AdminPage() {
   const checkPausedStatus = async () => {
     setLoading(true);
     try {
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      const paused = await contract.call("is_job_creation_paused");
-
-      // Handle different possible return types - including Proxy objects
-      let isPaused = false;
-
-      if (paused === true || paused === "true" || paused === 1) {
-        isPaused = true;
-      } else if (paused === false || paused === "false" || paused === 0) {
-        isPaused = false;
-      } else if (paused && typeof paused === "object") {
-        // Handle Proxy objects - try to extract the actual value
-        try {
-          const pausedValue = paused.toString();
-          isPaused = pausedValue === "true" || pausedValue === "1";
-        } catch (e) {
-          isPaused = false; // Default to not paused
-        }
-      }
-
-      setIsPaused(isPaused);
+      // Pass the wallet address to the contract service
+      const paused = await contractService.isJobCreationPaused(
+        wallet.address || undefined
+      );
+      setIsPaused(paused);
     } catch (error) {
+      console.error("Error checking pause status:", error);
       // Fallback to false if contract call fails
       setIsPaused(false);
     } finally {
@@ -134,6 +146,9 @@ export default function AdminPage() {
   };
 
   const handleAction = async () => {
+    if (actionLoading) return; // Prevent double clicks
+
+    setActionLoading(true);
     try {
       // If in test mode, simulate the action without calling the contract
       if (testMode) {
@@ -163,45 +178,19 @@ export default function AdminPage() {
         return;
       }
 
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      if (!contract) {
-        throw new Error("Contract not available");
+      if (!wallet.isConnected || !wallet.address) {
+        throw new Error("Wallet not connected");
       }
 
       switch (actionType) {
         case "pause":
           // Check if contract is already paused
-          const currentPausedStatusForPause = await contract.call(
-            "is_job_creation_paused"
-          );
+          const currentPausedStatusForPause =
+            await contractService.isJobCreationPaused(
+              wallet.address || undefined
+            );
 
-          // Handle different possible return types
-          let isPausedForPause = false;
-          if (
-            currentPausedStatusForPause === true ||
-            currentPausedStatusForPause === "true" ||
-            currentPausedStatusForPause === 1
-          ) {
-            isPausedForPause = true;
-          } else if (
-            currentPausedStatusForPause === false ||
-            currentPausedStatusForPause === "false" ||
-            currentPausedStatusForPause === 0
-          ) {
-            isPausedForPause = false;
-          } else if (
-            currentPausedStatusForPause &&
-            typeof currentPausedStatusForPause === "object"
-          ) {
-            try {
-              const pausedValue = currentPausedStatusForPause.toString();
-              isPausedForPause = pausedValue === "true" || pausedValue === "1";
-            } catch {
-              isPausedForPause = false;
-            }
-          }
-
-          if (isPausedForPause) {
+          if (currentPausedStatusForPause) {
             toast({
               title: "Contract Already Paused",
               description: "The contract is already in a paused state",
@@ -211,56 +200,27 @@ export default function AdminPage() {
             return;
           }
 
-          console.log("Calling set_job_creation_paused(true)...");
-          console.log("Wallet address:", wallet.address);
-          console.log("Contract owner:", contractOwner);
+          // Check if user is owner
           if (contractOwner && wallet.address !== contractOwner) {
             throw new Error(
               `Only the contract owner (${contractOwner.slice(0, 8)}...) can pause the contract. Your wallet: ${wallet.address?.slice(0, 8)}...`
             );
           }
-          await contract.send("set_job_creation_paused", true);
-          // Wait for transaction confirmation before updating UI
-          // Refresh pause status from blockchain to ensure UI matches reality
-          await checkPausedStatus();
-          toast({
-            title: "Contract paused",
-            description: "All escrow operations are now paused",
-          });
+
+          // Use the new hook to pause
+          const pauseTxHash = await pauseJobCreation.mutateAsync();
+          console.log("Pause transaction hash:", pauseTxHash);
+          // Reload page to refresh all data
+          window.location.reload();
           break;
 
         case "unpause":
           // Check if contract is already unpaused
-          const currentPausedStatus = await contract.call(
-            "is_job_creation_paused"
+          const currentPausedStatus = await contractService.isJobCreationPaused(
+            wallet.address || undefined
           );
 
-          let isPaused = false;
-          if (
-            currentPausedStatus === true ||
-            currentPausedStatus === "true" ||
-            currentPausedStatus === 1
-          ) {
-            isPaused = true;
-          } else if (
-            currentPausedStatus === false ||
-            currentPausedStatus === "false" ||
-            currentPausedStatus === 0
-          ) {
-            isPaused = false;
-          } else if (
-            currentPausedStatus &&
-            typeof currentPausedStatus === "object"
-          ) {
-            try {
-              const pausedValue = currentPausedStatus.toString();
-              isPaused = pausedValue === "true" || pausedValue === "1";
-            } catch {
-              isPaused = false;
-            }
-          }
-
-          if (!isPaused) {
+          if (!currentPausedStatus) {
             toast({
               title: "Contract Already Unpaused",
               description: "The contract is already in an unpaused state",
@@ -270,22 +230,18 @@ export default function AdminPage() {
             return;
           }
 
-          console.log("Calling set_job_creation_paused(false)...");
-          console.log("Wallet address:", wallet.address);
-          console.log("Contract owner:", contractOwner);
+          // Check if user is owner
           if (contractOwner && wallet.address !== contractOwner) {
             throw new Error(
               `Only the contract owner (${contractOwner.slice(0, 8)}...) can unpause the contract. Your wallet: ${wallet.address?.slice(0, 8)}...`
             );
           }
-          await contract.send("set_job_creation_paused", false);
-          // Wait for transaction confirmation before updating UI
-          // Refresh pause status from blockchain to ensure UI matches reality
-          await checkPausedStatus();
-          toast({
-            title: "Contract unpaused",
-            description: "Escrow operations have been resumed",
-          });
+
+          // Use the new hook to unpause
+          const unpauseTxHash = await unpauseJobCreation.mutateAsync();
+          console.log("Unpause transaction hash:", unpauseTxHash);
+          // Reload page to refresh all data
+          window.location.reload();
           break;
 
         case "withdraw":
@@ -298,13 +254,18 @@ export default function AdminPage() {
           break;
       }
 
+      // Only close dialog if action completed successfully
+      // (mutations handle their own success/error states)
       setDialogOpen(false);
     } catch (error: any) {
+      console.error("Error executing action:", error);
       toast({
         title: "Action failed",
         description: error.message || "Failed to perform admin action",
         variant: "destructive",
       });
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -354,7 +315,7 @@ export default function AdminPage() {
     }
   };
 
-  if (!wallet.isConnected) {
+  if (!wallet.isConnected || !wallet.address) {
     return (
       <div className="min-h-screen flex items-center justify-center gradient-mesh">
         <Card className="glass border-primary/20 p-12 text-center max-w-md">
@@ -602,8 +563,21 @@ export default function AdminPage() {
                 onClick={() => openDialog(isPaused ? "unpause" : "pause")}
                 variant={isPaused ? "default" : "destructive"}
                 className="w-full gap-2"
+                disabled={
+                  actionLoading ||
+                  pauseJobCreation.isPending ||
+                  unpauseJobCreation.isPending ||
+                  loading
+                }
               >
-                {isPaused ? (
+                {actionLoading ||
+                pauseJobCreation.isPending ||
+                unpauseJobCreation.isPending ? (
+                  <>
+                    <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
+                    Processing...
+                  </>
+                ) : isPaused ? (
                   <>
                     <Play className="h-4 w-4" />
                     Unpause Contract
@@ -804,11 +778,36 @@ export default function AdminPage() {
           </Alert>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setDialogOpen(false)}
+              disabled={
+                actionLoading ||
+                pauseJobCreation.isPending ||
+                unpauseJobCreation.isPending
+              }
+            >
               Cancel
             </Button>
-            <Button onClick={handleAction} variant={dialogContent.variant}>
-              {dialogContent.confirmText}
+            <Button
+              onClick={handleAction}
+              variant={dialogContent.variant}
+              disabled={
+                actionLoading ||
+                pauseJobCreation.isPending ||
+                unpauseJobCreation.isPending
+              }
+            >
+              {actionLoading ||
+              pauseJobCreation.isPending ||
+              unpauseJobCreation.isPending ? (
+                <>
+                  <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-current border-r-transparent mr-2" />
+                  Processing...
+                </>
+              ) : (
+                dialogContent.confirmText
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

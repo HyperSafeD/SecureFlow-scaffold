@@ -1,10 +1,9 @@
-
-
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { useWeb3 } from "@/contexts/web3-context";
 import { useToast } from "@/hooks/use-toast";
 import { CONTRACTS } from "@/lib/web3/config";
+import { contractService } from "@/lib/web3/contract-service";
 
 import {
   useNotifications,
@@ -34,7 +33,9 @@ export default function JobsPage() {
   const [ongoingProjectsCount, setOngoingProjectsCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
-  const getStatusFromNumber = (status: number): "pending" | "disputed" | "active" | "completed" => {
+  const getStatusFromNumber = (
+    status: number
+  ): "pending" | "disputed" | "active" | "completed" => {
     switch (status) {
       case 0:
         return "pending";
@@ -161,7 +162,7 @@ export default function JobsPage() {
           const hasUserApplied = await contract.call(
             "hasUserApplied",
             job.id,
-            wallet.address,
+            wallet.address
           );
           applicationStatus[job.id] = Boolean(hasUserApplied);
         } catch (error) {
@@ -196,11 +197,20 @@ export default function JobsPage() {
   const fetchOpenJobs = async () => {
     setLoading(true);
     try {
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
+      // Get total number of escrows using contract service
+      // Add timeout to prevent infinite loading
+      const escrowCountPromise = contractService.getNextEscrowId();
+      const timeoutPromise = new Promise<number>((resolve) => {
+        setTimeout(() => {
+          console.warn("getNextEscrowId timed out, using default value");
+          resolve(10); // Default to 10 if timeout
+        }, 10000); // 10 second timeout
+      });
 
-      // Get total number of escrows
-      const totalEscrows = await contract.call("next_escrow_id");
-      const escrowCount = Number(totalEscrows);
+      const escrowCount = await Promise.race([
+        escrowCountPromise,
+        timeoutPromise,
+      ]);
 
       const openJobs: Escrow[] = [];
 
@@ -209,147 +219,51 @@ export default function JobsPage() {
       if (escrowCount > 1) {
         for (let i = 1; i < escrowCount; i++) {
           try {
-            const escrowSummary = await contract.call("get_escrow", i);
+            const escrowData = await contractService.getEscrow(i);
+            if (!escrowData) {
+              continue;
+            }
 
-            // Check if this is an open job (beneficiary is zero address)
-            // getEscrowSummary returns indexed properties: [depositor, beneficiary, arbiters, status, totalAmount, paidAmount, remaining, token, deadline, workStarted, createdAt, milestoneCount, isOpenJob, projectTitle, projectDescription]
+            // Check if this is an open job (beneficiary is null or zero address)
+            // For Stellar, null beneficiary means it's an open job
+            const zeroAddress =
+              "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
             const isOpenJob =
-              escrowSummary[1] === "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+              !escrowData.freelancer ||
+              escrowData.freelancer === zeroAddress ||
+              escrowData.freelancer === "";
 
             if (isOpenJob) {
               // Check if current user is the job creator (should not be able to apply to own job)
               const isJobCreator =
-                escrowSummary[0].toLowerCase() ===
+                escrowData.creator.toLowerCase() ===
                 wallet.address?.toLowerCase();
 
               // Check if current user has already applied to this job
+              // For now, we'll skip this check and just display the jobs
+              // Application checking can be added later if needed
               let userHasApplied = false;
-              if (wallet.address && !isJobCreator) {
-                try {
-                  const hasAppliedResult = await contract.call(
-                    "hasUserApplied",
-                    i,
-                    wallet.address,
-                  );
-
-                  // Handle different possible return types - be more strict about what counts as "applied"
-                  if (
-                    hasAppliedResult &&
-                    typeof hasAppliedResult === "object"
-                  ) {
-                    // Handle Proxy(Result) objects
-                    try {
-                      const resultValue =
-                        hasAppliedResult[0] || hasAppliedResult.toString();
-                      userHasApplied =
-                        resultValue === true ||
-                        resultValue === "true" ||
-                        resultValue === 1 ||
-                        resultValue === "1";
-                    } catch (e) {
-                      userHasApplied = false;
-                    }
-                  } else {
-                    userHasApplied =
-                      hasAppliedResult === true ||
-                      hasAppliedResult === "true" ||
-                      hasAppliedResult === 1;
-                  }
-
-                  // Update the hasApplied state for this job
-                  setHasApplied((prev) => ({
-                    ...prev,
-                    [i]: userHasApplied,
-                  }));
-
-                  // If hasUserApplied returned false, try to double-check with applications list
-                  if (!userHasApplied) {
-                    try {
-                      // Try to get applications with a smaller limit first
-                      let applications = null;
-                      try {
-                        applications = await contract.call(
-                          "getApplicationsPage",
-                          i, // escrowId
-                          0, // offset
-                          1, // limit - start with 1
-                        );
-                      } catch (error1) {
-                        try {
-                          applications = await contract.call(
-                            "getApplicationsPage",
-                            i, // escrowId
-                            0, // offset
-                            10, // limit - try 10
-                          );
-                        } catch (error2) {
-                          throw error2;
-                        }
-                      }
-
-                      if (applications && Array.isArray(applications)) {
-                        const userInApplications = applications.some(
-                          (app: any) =>
-                            app.freelancer &&
-                            app.freelancer.toLowerCase() ===
-                              wallet.address?.toLowerCase(),
-                        );
-
-                        if (userInApplications) {
-                          userHasApplied = true;
-                          setHasApplied((prev) => ({
-                            ...prev,
-                            [i]: true,
-                          }));
-                        }
-                      }
-                    } catch (appError) {
-                      // Could not fetch applications during double-check
-                    }
-                  }
-                } catch (error) {
-                  // Error checking application status
-                  // If check fails, assume they haven't applied
-                  userHasApplied = false;
-                }
-              } else {
-              }
-
-              // Fetch application count for this job
               let applicationCount = 0;
-              try {
-                const applications = await contract.call(
-                  "getApplicationsPage",
-                  i, // escrowId
-                  0, // offset
-                  100, // limit
-                );
-                applicationCount = applications ? applications.length : 0;
-              } catch (error) {
-                // Could not fetch applications
-                applicationCount = 0;
-              }
 
               // Convert contract data to our Escrow type
               const job: Escrow = {
                 id: i.toString(),
-                payer: escrowSummary[0], // depositor
-                beneficiary: escrowSummary[1], // beneficiary
-                token: escrowSummary[7], // token
-                totalAmount: escrowSummary[4].toString(), // totalAmount
-                releasedAmount: escrowSummary[5].toString(), // paidAmount
-                status: getStatusFromNumber(Number(escrowSummary[3])), // status
-                createdAt: Number(escrowSummary[10]) * 1000, // createdAt (convert to milliseconds)
+                payer: escrowData.creator, // depositor/creator
+                beneficiary: escrowData.freelancer || zeroAddress, // beneficiary/freelancer
+                token: escrowData.token || "", // token
+                totalAmount: escrowData.amount, // totalAmount
+                releasedAmount: "0", // paidAmount - would need to calculate from milestones
+                status: getStatusFromNumber(escrowData.status), // status
+                createdAt: escrowData.created_at * 1000, // createdAt (convert to milliseconds)
                 duration: Math.max(
                   0,
                   Math.round(
-                    (Number(escrowSummary[8]) - Number(escrowSummary[10])) /
-                      (24 * 60 * 60),
-                  ),
+                    (escrowData.deadline - escrowData.created_at) /
+                      (24 * 60 * 60)
+                  )
                 ), // Convert seconds to days, ensure non-negative and round to nearest day
                 milestones: [], // Would need to fetch milestones separately
-                // projectTitle: escrowSummary[13] || "", // projectTitle - removed as not in Escrow interface
-                projectDescription: escrowSummary[14] || "", // projectDescription
+                projectDescription: escrowData.project_description || "", // projectDescription
                 isOpenJob: true,
                 applications: [], // Would need to fetch applications separately
                 applicationCount: applicationCount, // Add real application count
@@ -387,7 +301,7 @@ export default function JobsPage() {
   const handleApply = async (
     job: Escrow,
     coverLetter: string,
-    proposedTimeline: string,
+    proposedTimeline: string
   ) => {
     if (!job || !wallet.isConnected) return;
 
@@ -426,7 +340,7 @@ export default function JobsPage() {
         const hasUserAppliedResult = await contract.call(
           "hasUserApplied",
           job.id,
-          wallet.address,
+          wallet.address
         );
 
         // Handle different return types including Proxy(Result) objects
@@ -459,7 +373,7 @@ export default function JobsPage() {
             "getApplicationsPage",
             job.id,
             0, // offset
-            100, // limit
+            100 // limit
           );
 
           if (applications && Array.isArray(applications)) {
@@ -468,7 +382,8 @@ export default function JobsPage() {
               const freelancerAddress = app.freelancer || app[0]; // Try different possible structures
               return (
                 freelancerAddress &&
-                freelancerAddress.toLowerCase() === wallet.address?.toLowerCase()
+                freelancerAddress.toLowerCase() ===
+                  wallet.address?.toLowerCase()
               );
             });
           }
@@ -492,7 +407,7 @@ export default function JobsPage() {
         "no-value",
         job.id,
         coverLetter,
-        proposedTimeline,
+        proposedTimeline
       );
 
       toast({
@@ -503,12 +418,17 @@ export default function JobsPage() {
 
       // Add notification for job application submission - notify the CLIENT (job creator)
       addNotification(
-        createApplicationNotification("submitted", Number(job.id), wallet.address!, {
-          jobTitle: job.projectDescription || `Job #${job.id}`,
-          freelancerName:
-            wallet.address!.slice(0, 6) + "..." + wallet.address!.slice(-4),
-        }),
-        [job.payer], // Notify the client (job creator)
+        createApplicationNotification(
+          "submitted",
+          Number(job.id),
+          wallet.address!,
+          {
+            jobTitle: job.projectDescription || `Job #${job.id}`,
+            freelancerName:
+              wallet.address!.slice(0, 6) + "..." + wallet.address!.slice(-4),
+          }
+        ),
+        [job.payer] // Notify the client (job creator)
       );
 
       setCoverLetter("");
@@ -543,8 +463,8 @@ export default function JobsPage() {
         ?.toLowerCase()
         .includes(searchQuery.toLowerCase()) ||
       job.milestones.some((m) =>
-        m.description.toLowerCase().includes(searchQuery.toLowerCase()),
-      ),
+        m.description.toLowerCase().includes(searchQuery.toLowerCase())
+      )
   );
 
   if (!wallet.isConnected || loading) {

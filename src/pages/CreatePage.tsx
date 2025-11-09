@@ -5,15 +5,13 @@ import { useWeb3 } from "@/contexts/web3-context";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  CONTRACTS,
-  GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF,
-} from "@/lib/web3/config";
+import { GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF } from "@/lib/web3/config";
 
 import { useNavigate } from "react-router-dom";
 import { ProjectDetailsStep } from "@/components/create/project-details-step";
 import { MilestonesStep } from "@/components/create/milestones-step";
 import { ReviewStep } from "@/components/create/review-step";
+import { useCreateEscrow } from "@/hooks/use-escrows";
 
 interface Milestone {
   description: string;
@@ -22,10 +20,11 @@ interface Milestone {
 
 export default function CreateEscrowPage() {
   const navigate = useNavigate();
-  const { wallet, getContract } = useWeb3();
+  const { wallet } = useWeb3();
   // Stellar doesn't use smart accounts
   // const { executeTransaction, isSmartAccountReady } = useSmartAccount();
   const { toast } = useToast();
+  const createEscrow = useCreateEscrow();
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAIWriter, setShowAIWriter] = useState(false);
@@ -65,26 +64,9 @@ export default function CreateEscrowPage() {
 
   const checkContractPauseStatus = async () => {
     try {
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      const paused = await contract.call("paused");
-
-      let isPaused = false;
-
-      // Use the same robust parsing logic as admin page
-      if (paused === true || paused === "true" || paused === 1) {
-        isPaused = true;
-      } else if (paused === false || paused === "false" || paused === 0) {
-        isPaused = false;
-      } else if (paused && typeof paused === "object") {
-        try {
-          const pausedValue = paused.toString();
-          isPaused = pausedValue === "true" || pausedValue === "1";
-        } catch (e) {
-          isPaused = false; // Default to not paused
-        }
-      }
-
-      setIsContractPaused(isPaused);
+      const { contractService } = await import("@/lib/web3/contract-service");
+      const paused = await contractService.isJobCreationPaused();
+      setIsContractPaused(paused);
     } catch (error) {
       setIsContractPaused(false);
     }
@@ -329,8 +311,6 @@ export default function CreateEscrowPage() {
         // No need to check token contract here
       }
 
-      const escrowContract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      console.log("Got contract instance:", escrowContract);
       const milestoneDescriptions = formData.milestones.map(
         (m) => m.description
       );
@@ -379,61 +359,37 @@ export default function CreateEscrowPage() {
       // Convert duration from days to seconds
       const durationInSeconds = Number(formData.duration) * 24 * 60 * 60;
 
-      // Stellar: Use the generated client's create_escrow method
-      // create_escrow signature: (depositor, beneficiary, arbiters, required_confirmations, milestones, token, total_amount, duration, project_title, project_description)
-      // Note: milestones is Vec<(i128, String)> - tuple of amount and description
+      // Convert milestones to [amount, description] format for the hook
       const milestones = milestoneAmountsInStroops.map(
         (amount, idx) =>
-          [amount, milestoneDescriptions[idx] || ""] as [bigint, string]
+          [amount.toString(), milestoneDescriptions[idx] || ""] as [
+            string,
+            string,
+          ]
       );
 
-      // Send transaction (no retry logic)
-      console.log("Sending create_escrow transaction...", {
-        args: {
-          depositor: wallet.address,
-          beneficiary: beneficiaryAddress || null,
-          arbiters,
-          required_confirmations: requiredConfirmations,
-          milestones,
-          token:
-            formData.useNativeToken || !formData.token || formData.token === ""
-              ? null // null for native XLM
-              : formData.token, // custom token address
-          total_amount: totalAmountInStroops.toString(),
-          duration: durationInSeconds,
-          project_title: formData.projectTitle,
-          project_description: formData.projectDescription,
-        },
-      });
+      // Use the useCreateEscrow hook
+      if (!wallet.address) {
+        throw new Error("Wallet not connected");
+      }
 
-      // Use the generated client's send method which expects an object
-      // The generated client handles Option types automatically - pass null for None
-      const txHash = await escrowContract.send("create_escrow", {
+      const escrowId = await createEscrow.mutateAsync({
         depositor: wallet.address,
-        beneficiary: beneficiaryAddress || null, // null for Option<Address>
-        arbiters: arbiters, // arbiters array
+        beneficiary: beneficiaryAddress || undefined,
+        arbiters,
         required_confirmations: requiredConfirmations,
-        milestones: milestones,
+        milestones,
         token:
           formData.useNativeToken || !formData.token || formData.token === ""
-            ? null // null for native XLM
-            : formData.token, // custom token address
-        total_amount: totalAmountInStroops,
+            ? undefined
+            : formData.token,
+        total_amount: totalAmountInStroops.toString(),
         duration: durationInSeconds,
         project_title: formData.projectTitle,
         project_description: formData.projectDescription,
       });
 
-      console.log("Transaction sent successfully, hash:", txHash);
-
-      toast({
-        title: "Escrow Created!",
-        description: "Your escrow has been created successfully",
-      });
-
-      // Wait for transaction confirmation
-      // Stellar: Transaction is already confirmed when send() returns
-      // No need for additional polling
+      console.log("Escrow created successfully, ID:", escrowId);
 
       // Navigate after successful creation
       setTimeout(() => {
@@ -441,64 +397,7 @@ export default function CreateEscrowPage() {
       }, 2000);
     } catch (error: any) {
       console.error("Error creating escrow:", error);
-      let errorMessage = "Failed to create escrow";
-      let errorTitle = "Creation failed";
-
-      // Extract error message from various error formats
-      if (error.message) {
-        if (error.message.includes("insufficient funds")) {
-          errorMessage = "Insufficient funds. Please check your balance.";
-        } else if (error.message.includes("gas")) {
-          errorMessage = "Gas estimation failed. Please try again.";
-        } else if (error.message.includes("revert")) {
-          errorMessage = "Transaction reverted. Please check your parameters.";
-        } else if (
-          error.message.includes("user rejected") ||
-          error.message.includes("rejected")
-        ) {
-          errorMessage = "Transaction was rejected by user.";
-        } else if (error.message.includes("timeout")) {
-          errorMessage = "Transaction timeout. Please try again.";
-        } else if (error.message.includes("Wallet not connected")) {
-          errorMessage = "Wallet not connected. Please connect your wallet.";
-        } else if (error.message.includes("Transaction signing failed")) {
-          errorMessage =
-            "Transaction signing failed. Please check your wallet connection.";
-        } else if (error.message.includes("Transaction failed")) {
-          errorMessage = error.message;
-        } else if (error.message.includes("Transaction error")) {
-          errorMessage = error.message;
-        } else {
-          errorMessage = error.message;
-        }
-      } else if (error.errorResult) {
-        // Handle Stellar RPC error format
-        try {
-          const errorValue =
-            typeof error.errorResult.value === "function"
-              ? error.errorResult.value()
-              : error.errorResult.value || error.errorResult;
-          errorMessage = `Transaction failed: ${JSON.stringify(errorValue)}`;
-        } catch (e) {
-          errorMessage = `Transaction failed: ${JSON.stringify(error.errorResult)}`;
-        }
-      } else {
-        errorMessage = error.toString() || "Failed to create escrow";
-      }
-
-      // Show error toast
-      toast({
-        title: errorTitle,
-        description: errorMessage,
-        variant: "destructive",
-        duration: 10000, // Show for 10 seconds
-      });
-
-      console.error("Error details:", {
-        error,
-        message: errorMessage,
-        stack: error.stack,
-      });
+      // Error toast is handled by the useCreateEscrow hook
     } finally {
       setIsSubmitting(false);
     }
@@ -643,7 +542,7 @@ export default function CreateEscrowPage() {
                 <ReviewStep
                   formData={formData}
                   onConfirm={handleSubmit}
-                  isSubmitting={isSubmitting}
+                  isSubmitting={isSubmitting || createEscrow.isPending}
                   isContractPaused={isContractPaused}
                   isOnCorrectNetwork={isOnCorrectNetwork}
                 />
