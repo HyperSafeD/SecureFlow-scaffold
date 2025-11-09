@@ -162,5 +162,20 @@ impl SecureFlow {
             .set(&DataKey::AuthorizedArbiter(arbiter.clone()), &true);
         Ok(())
     }
+
+    /// Pause job creation
+    pub fn pause_job_creation(env: Env) -> Result<(), Error> {
+        admin::set_job_creation_paused(&env, true)
+    }
+
+    /// Unpause job creation
+    pub fn unpause_job_creation(env: Env) -> Result<(), Error> {
+        admin::set_job_creation_paused(&env, false)
+    }
+
+    /// Check if job creation is paused
+    pub fn is_job_creation_paused(env: Env) -> bool {
+        admin::is_job_creation_paused(&env)
+    }
 }
 

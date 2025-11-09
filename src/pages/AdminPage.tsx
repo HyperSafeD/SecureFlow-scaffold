@@ -100,7 +100,7 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      const paused = await contract.call("paused");
+      const paused = await contract.call("is_job_creation_paused");
 
       // Handle different possible return types - including Proxy objects
       let isPaused = false;
@@ -164,29 +164,132 @@ export default function AdminPage() {
       }
 
       const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
+      if (!contract) {
+        throw new Error("Contract not available");
+      }
 
       switch (actionType) {
         case "pause":
-          // Note: The Stellar contract may not have a "pause" method
-          // If your contract has pause functionality, implement it here
+          // Check if contract is already paused
+          const currentPausedStatusForPause = await contract.call(
+            "is_job_creation_paused"
+          );
+
+          // Handle different possible return types
+          let isPausedForPause = false;
+          if (
+            currentPausedStatusForPause === true ||
+            currentPausedStatusForPause === "true" ||
+            currentPausedStatusForPause === 1
+          ) {
+            isPausedForPause = true;
+          } else if (
+            currentPausedStatusForPause === false ||
+            currentPausedStatusForPause === "false" ||
+            currentPausedStatusForPause === 0
+          ) {
+            isPausedForPause = false;
+          } else if (
+            currentPausedStatusForPause &&
+            typeof currentPausedStatusForPause === "object"
+          ) {
+            try {
+              const pausedValue = currentPausedStatusForPause.toString();
+              isPausedForPause = pausedValue === "true" || pausedValue === "1";
+            } catch {
+              isPausedForPause = false;
+            }
+          }
+
+          if (isPausedForPause) {
+            toast({
+              title: "Contract Already Paused",
+              description: "The contract is already in a paused state",
+              variant: "destructive",
+            });
+            setDialogOpen(false);
+            return;
+          }
+
+          console.log("Calling set_job_creation_paused(true)...");
+          console.log("Wallet address:", wallet.address);
+          console.log("Contract owner:", contractOwner);
+          if (contractOwner && wallet.address !== contractOwner) {
+            throw new Error(
+              `Only the contract owner (${contractOwner.slice(0, 8)}...) can pause the contract. Your wallet: ${wallet.address?.slice(0, 8)}...`
+            );
+          }
+          await contract.send("set_job_creation_paused", true);
+          // Wait for transaction confirmation before updating UI
+          // Refresh pause status from blockchain to ensure UI matches reality
+          await checkPausedStatus();
           toast({
-            title: "Pause not available",
-            description: "The contract does not support pause functionality",
-            variant: "destructive",
+            title: "Contract paused",
+            description: "All escrow operations are now paused",
           });
           break;
+
         case "unpause":
-          // Note: The Stellar contract may not have an "unpause" method
-          // If your contract has unpause functionality, implement it here
+          // Check if contract is already unpaused
+          const currentPausedStatus = await contract.call(
+            "is_job_creation_paused"
+          );
+
+          let isPaused = false;
+          if (
+            currentPausedStatus === true ||
+            currentPausedStatus === "true" ||
+            currentPausedStatus === 1
+          ) {
+            isPaused = true;
+          } else if (
+            currentPausedStatus === false ||
+            currentPausedStatus === "false" ||
+            currentPausedStatus === 0
+          ) {
+            isPaused = false;
+          } else if (
+            currentPausedStatus &&
+            typeof currentPausedStatus === "object"
+          ) {
+            try {
+              const pausedValue = currentPausedStatus.toString();
+              isPaused = pausedValue === "true" || pausedValue === "1";
+            } catch {
+              isPaused = false;
+            }
+          }
+
+          if (!isPaused) {
+            toast({
+              title: "Contract Already Unpaused",
+              description: "The contract is already in an unpaused state",
+              variant: "destructive",
+            });
+            setDialogOpen(false);
+            return;
+          }
+
+          console.log("Calling set_job_creation_paused(false)...");
+          console.log("Wallet address:", wallet.address);
+          console.log("Contract owner:", contractOwner);
+          if (contractOwner && wallet.address !== contractOwner) {
+            throw new Error(
+              `Only the contract owner (${contractOwner.slice(0, 8)}...) can unpause the contract. Your wallet: ${wallet.address?.slice(0, 8)}...`
+            );
+          }
+          await contract.send("set_job_creation_paused", false);
+          // Wait for transaction confirmation before updating UI
+          // Refresh pause status from blockchain to ensure UI matches reality
+          await checkPausedStatus();
           toast({
-            title: "Unpause not available",
-            description: "The contract does not support unpause functionality",
-            variant: "destructive",
+            title: "Contract unpaused",
+            description: "Escrow operations have been resumed",
           });
           break;
+
         case "withdraw":
-          // Note: The Stellar contract may not have a "withdrawStuckTokens" method
-          // If your contract has withdraw functionality, implement it here
+          // Withdraw functionality - implement if needed
           toast({
             title: "Withdraw not available",
             description: "The contract does not support withdraw functionality",

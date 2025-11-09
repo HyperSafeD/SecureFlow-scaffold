@@ -16,6 +16,8 @@ import {
   nativeToScVal,
   scValToNative,
   TransactionBuilder,
+  Operation,
+  xdr,
 } from "@stellar/stellar-sdk";
 import {
   wallet,
@@ -347,9 +349,39 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             }
           }
 
-          if (method === "paused") {
-            // Check if contract is paused (this might need to be added to the contract)
-            return false;
+          if (method === "paused" || method === "is_job_creation_paused") {
+            // Check if job creation is paused
+            try {
+              // Use the contract directly since the generated client might not have this method yet
+              const contract = new Contract(contractId);
+              const server = createRpcServer();
+
+              // Call is_job_creation_paused method
+              const result = await server.simulateTransaction(
+                contract.call("is_job_creation_paused")
+              );
+
+              if (result.errorResult) {
+                console.warn(
+                  "Error checking pause status:",
+                  result.errorResult
+                );
+                return false; // Default to not paused
+              }
+
+              if (result.returnValue) {
+                try {
+                  return scValToNative(result.returnValue);
+                } catch {
+                  return result.returnValue;
+                }
+              }
+
+              return false; // Default to not paused
+            } catch (error) {
+              console.warn("Error checking pause status:", error);
+              return false; // Default to not paused
+            }
           }
 
           // Fallback for methods not in the map
@@ -479,6 +511,358 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             assembledTx = await client.whitelist_token(args[0]);
           } else if (method === "authorize_arbiter" && args[0]) {
             assembledTx = await client.authorize_arbiter(args[0]);
+          } else if (method === "set_job_creation_paused") {
+            // Handle set_job_creation_paused(bool) - args[0] is the boolean value
+            const paused =
+              args[0] === true || args[0] === "true" || args[0] === 1;
+            console.log(`Setting job creation paused to: ${paused}`);
+
+            const contract = new Contract(contractId);
+            const server = createRpcServer();
+            const sourceAccount = await server.getAccount(walletState.address!);
+
+            // Convert boolean to ScVal
+            const pausedScVal = nativeToScVal(paused, { type: "bool" });
+
+            const tx = new TransactionBuilder(sourceAccount, {
+              fee: "100",
+              networkPassphrase: network.networkPassphrase,
+            })
+              .addOperation(
+                contract.call("set_job_creation_paused", pausedScVal)
+              )
+              .setTimeout(30)
+              .build();
+
+            // Simulate to check for errors and get auth entries
+            console.log("Simulating set_job_creation_paused transaction...");
+            const simulation = await server.simulateTransaction(tx);
+            console.log("Simulation result:", simulation);
+            console.log("Simulation auth entries:", simulation?.auth);
+            console.log(
+              "Simulation auth count:",
+              simulation?.auth?.length || 0
+            );
+
+            if (simulation.errorResult) {
+              console.error("Simulation error:", simulation.errorResult);
+              throw new Error(
+                `Transaction simulation failed: ${simulation.errorResult.toString()}`
+              );
+            }
+            console.log("Simulation successful, preparing transaction...");
+
+            // Prepare transaction (includes auth entries if needed)
+            const prepared = await server.prepareTransaction(tx);
+
+            // Check if simulation returned auth entries that need to be signed
+            if (simulation && simulation.auth && simulation.auth.length > 0) {
+              console.log("Auth entries found, signing auth entries first...");
+              console.log("Auth entries count:", simulation.auth.length);
+
+              // Sign auth entries first, then the transaction
+              const { signAuthEntries, signTransaction } = await import(
+                "@stellar/freighter-api"
+              );
+
+              // Sign the auth entries
+              console.log("Signing auth entries with:", {
+                authEntries: simulation.auth.map((entry: any) =>
+                  entry.toXDR("base64")
+                ),
+                networkPassphrase: network.networkPassphrase,
+                accountToSign: walletState.address,
+              });
+              const signedAuthEntries = await signAuthEntries(
+                simulation.auth.map((entry: any) => entry.toXDR("base64")),
+                {
+                  networkPassphrase: network.networkPassphrase,
+                  accountToSign: walletState.address,
+                }
+              );
+              console.log("Auth entries signed, result:", signedAuthEntries);
+
+              if (!signedAuthEntries || signedAuthEntries.length === 0) {
+                throw new Error("Failed to sign auth entries");
+              }
+
+              console.log(
+                "Auth entries signed successfully, count:",
+                signedAuthEntries.length
+              );
+
+              // Rebuild the transaction with signed auth entries
+              const txXdr = prepared.toXDR();
+              const txWithAuth = TransactionBuilder.fromXDR(
+                txXdr,
+                network.networkPassphrase
+              );
+
+              // Replace auth entries in the operation
+              // Parse signed auth entries first
+              const parsedSignedAuth = signedAuthEntries.map((signed: string) =>
+                xdr.SorobanAuthorizationEntry.fromXDR(signed, "base64")
+              );
+
+              console.log(
+                "Parsed signed auth entries:",
+                parsedSignedAuth.length
+              );
+
+              // Rebuild the transaction with signed auth entries
+              // Use the original transaction structure but inject signed auth entries
+              const operations = txWithAuth.operations;
+              if (operations && operations.length > 0) {
+                const op = operations[0];
+                if (op.type === "invokeHostFunction") {
+                  // Get the host function from the original operation
+                  const hostFn = op.function;
+
+                  // Create a new InvokeHostFunction operation with signed auth entries
+                  // Use Operation.invokeHostFunction with the host function and signed auth
+                  const newOp = Operation.invokeHostFunction({
+                    function: hostFn,
+                    auth: parsedSignedAuth,
+                  });
+
+                  // Get fresh account to ensure correct sequence number
+                  const freshAccount = await server.getAccount(
+                    walletState.address!
+                  );
+
+                  // Build transaction with the new operation
+                  const newTx = new TransactionBuilder(freshAccount, {
+                    fee: txWithAuth.fee,
+                    networkPassphrase: network.networkPassphrase,
+                  })
+                    .addOperation(newOp)
+                    .setTimeout(txWithAuth.maxTime || 30)
+                    .build();
+
+                  // Prepare the new transaction (to get resource fees)
+                  const newPrepared = await server.prepareTransaction(newTx);
+
+                  // Sign the rebuilt transaction directly with signed auth entries
+                  console.log(
+                    "Signing transaction with signed auth entries..."
+                  );
+                  const { signTransaction: signTxFromFreighter } = await import(
+                    "@stellar/freighter-api"
+                  );
+                  const signResult = await signTxFromFreighter(
+                    newPrepared.toXDR(),
+                    {
+                      networkPassphrase: network.networkPassphrase,
+                      accountToSign: walletState.address,
+                    }
+                  );
+                  console.log("Sign result (with auth):", signResult);
+
+                  if (!signResult || !signResult.signedTxXdr) {
+                    throw new Error(
+                      "Transaction signing failed - no signed transaction received"
+                    );
+                  }
+
+                  // Parse the signed XDR back into a Transaction object
+                  const signedTransaction = TransactionBuilder.fromXDR(
+                    signResult.signedTxXdr,
+                    network.networkPassphrase
+                  );
+
+                  // Send the signed transaction via RPC
+                  const sendResponse =
+                    await server.sendTransaction(signedTransaction);
+
+                  console.log("Transaction sent successfully:", sendResponse);
+
+                  // Check for errors in the response
+                  if (
+                    sendResponse.status === "ERROR" ||
+                    sendResponse.errorResult
+                  ) {
+                    let errorMessage = "Transaction failed";
+                    if (sendResponse.errorResult) {
+                      try {
+                        let errorValue = sendResponse.errorResult;
+                        if (typeof errorValue.value === "function") {
+                          errorValue = errorValue.value();
+                        } else if (errorValue.value) {
+                          errorValue = errorValue.value;
+                        }
+                        if (typeof errorValue === "string") {
+                          errorMessage = `Transaction failed: ${errorValue}`;
+                        } else if (errorValue?.message) {
+                          errorMessage = `Transaction failed: ${errorValue.message}`;
+                        } else if (errorValue?.toString) {
+                          errorMessage = `Transaction failed: ${errorValue.toString()}`;
+                        } else {
+                          errorMessage = `Transaction failed: ${JSON.stringify(errorValue)}`;
+                        }
+                      } catch (e) {
+                        errorMessage = `Transaction failed: ${JSON.stringify(sendResponse.errorResult)}`;
+                      }
+                    }
+                    console.error("Transaction error:", {
+                      status: sendResponse.status,
+                      errorResult: sendResponse.errorResult,
+                      fullResponse: sendResponse,
+                      errorMessage,
+                    });
+                    throw new Error(errorMessage);
+                  }
+
+                  // Wait for transaction confirmation if status is PENDING
+                  if (sendResponse.status === "PENDING" && sendResponse.hash) {
+                    console.log(
+                      "Transaction pending, waiting for confirmation..."
+                    );
+                    console.log("Transaction hash:", sendResponse.hash);
+
+                    // Poll for transaction status
+                    let attempts = 0;
+                    const maxAttempts = 30; // Wait up to 30 seconds
+                    let txStatus = sendResponse;
+
+                    while (
+                      attempts < maxAttempts &&
+                      txStatus.status === "PENDING"
+                    ) {
+                      await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
+                      try {
+                        txStatus = await server.getTransaction(
+                          sendResponse.hash
+                        );
+                        console.log(
+                          `Transaction status check ${attempts + 1}:`,
+                          txStatus.status
+                        );
+                        attempts++;
+                      } catch (error) {
+                        console.warn(
+                          "Error checking transaction status:",
+                          error
+                        );
+                        attempts++;
+                      }
+                    }
+
+                    if (txStatus.status === "PENDING") {
+                      throw new Error(
+                        "Transaction still pending after waiting. It may have failed."
+                      );
+                    }
+
+                    if (txStatus.status === "ERROR" || txStatus.errorResult) {
+                      let errorMessage = "Transaction failed";
+                      if (txStatus.errorResult) {
+                        try {
+                          let errorValue = txStatus.errorResult;
+                          if (typeof errorValue.value === "function") {
+                            errorValue = errorValue.value();
+                          } else if (errorValue.value) {
+                            errorValue = errorValue.value;
+                          }
+                          if (typeof errorValue === "string") {
+                            errorMessage = `Transaction failed: ${errorValue}`;
+                          } else if (errorValue?.message) {
+                            errorMessage = `Transaction failed: ${errorValue.message}`;
+                          } else if (errorValue?.toString) {
+                            errorMessage = `Transaction failed: ${errorValue.toString()}`;
+                          } else {
+                            errorMessage = `Transaction failed: ${JSON.stringify(errorValue)}`;
+                          }
+                        } catch (e) {
+                          errorMessage = `Transaction failed: ${JSON.stringify(txStatus.errorResult)}`;
+                        }
+                      }
+                      console.error("Transaction failed after confirmation:", {
+                        status: txStatus.status,
+                        errorResult: txStatus.errorResult,
+                        fullResponse: txStatus,
+                        errorMessage,
+                      });
+                      throw new Error(errorMessage);
+                    }
+
+                    console.log(
+                      "Transaction confirmed successfully:",
+                      txStatus
+                    );
+                    return txStatus;
+                  }
+
+                  // Return success - skip the normal signing flow
+                  return sendResponse;
+                } else {
+                  throw new Error("Unexpected operation type");
+                }
+              } else {
+                throw new Error("No operations in transaction");
+              }
+            } else {
+              // No auth entries, just use the prepared transaction
+              console.log("No auth entries, using prepared transaction");
+              assembledTx = {
+                toXDR: () => prepared.toXDR(),
+              } as any;
+            }
+          } else if (method === "pause_job_creation") {
+            // Legacy method - use set_job_creation_paused(true) logic
+            console.log(
+              "pause_job_creation called, using set_job_creation_paused(true)"
+            );
+            const contract = new Contract(contractId);
+            const server = createRpcServer();
+            const sourceAccount = await server.getAccount(walletState.address!);
+            const pausedScVal = nativeToScVal(true, { type: "bool" });
+            const tx = new TransactionBuilder(sourceAccount, {
+              fee: "100",
+              networkPassphrase: network.networkPassphrase,
+            })
+              .addOperation(
+                contract.call("set_job_creation_paused", pausedScVal)
+              )
+              .setTimeout(30)
+              .build();
+            const simulation = await server.simulateTransaction(tx);
+            if (simulation.errorResult) {
+              throw new Error(
+                `Transaction simulation failed: ${simulation.errorResult.toString()}`
+              );
+            }
+            const prepared = await server.prepareTransaction(tx);
+            assembledTx = {
+              toXDR: () => prepared.toXDR(),
+            } as any;
+          } else if (method === "unpause_job_creation") {
+            // Legacy method - use set_job_creation_paused(false) logic
+            console.log(
+              "unpause_job_creation called, using set_job_creation_paused(false)"
+            );
+            const contract = new Contract(contractId);
+            const server = createRpcServer();
+            const sourceAccount = await server.getAccount(walletState.address!);
+            const pausedScVal = nativeToScVal(false, { type: "bool" });
+            const tx = new TransactionBuilder(sourceAccount, {
+              fee: "100",
+              networkPassphrase: network.networkPassphrase,
+            })
+              .addOperation(
+                contract.call("set_job_creation_paused", pausedScVal)
+              )
+              .setTimeout(30)
+              .build();
+            const simulation = await server.simulateTransaction(tx);
+            if (simulation.errorResult) {
+              throw new Error(
+                `Transaction simulation failed: ${simulation.errorResult.toString()}`
+              );
+            }
+            const prepared = await server.prepareTransaction(tx);
+            assembledTx = {
+              toXDR: () => prepared.toXDR(),
+            } as any;
           } else {
             throw new Error(
               `Method ${method} not supported in generated client`
@@ -544,20 +928,95 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
             console.log("Transaction sent successfully:", sendResponse);
 
-            if (sendResponse.errorResult) {
-              throw new Error(
-                `Transaction failed: ${sendResponse.errorResult.value()}`
-              );
+            // Wait for transaction confirmation if status is PENDING
+            let finalResponse = sendResponse;
+            if (sendResponse.status === "PENDING" && sendResponse.hash) {
+              console.log("Transaction pending, waiting for confirmation...");
+              console.log("Transaction hash:", sendResponse.hash);
+
+              // Poll for transaction status
+              let attempts = 0;
+              const maxAttempts = 30; // Wait up to 30 seconds
+
+              while (
+                attempts < maxAttempts &&
+                finalResponse.status === "PENDING"
+              ) {
+                await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
+                try {
+                  finalResponse = await server.getTransaction(
+                    sendResponse.hash
+                  );
+                  console.log(
+                    `Transaction status check ${attempts + 1}:`,
+                    finalResponse.status
+                  );
+                  attempts++;
+                } catch (error) {
+                  console.warn("Error checking transaction status:", error);
+                  attempts++;
+                }
+              }
+
+              if (finalResponse.status === "PENDING") {
+                throw new Error(
+                  "Transaction still pending after waiting. It may have failed."
+                );
+              }
+
+              console.log("Transaction confirmed:", finalResponse.status);
             }
 
-            if (sendResponse.status === "ERROR") {
-              throw new Error(
-                `Transaction error: ${JSON.stringify(sendResponse)}`
-              );
+            // Check for errors in the response
+            if (finalResponse.status === "ERROR" || finalResponse.errorResult) {
+              let errorMessage = "Transaction failed";
+
+              if (finalResponse.errorResult) {
+                // errorResult might be an object with a value() method or already be the value
+                try {
+                  // Try to extract error message from errorResult
+                  let errorValue = finalResponse.errorResult;
+
+                  // If it has a value() method, call it
+                  if (typeof errorValue.value === "function") {
+                    errorValue = errorValue.value();
+                  } else if (errorValue.value) {
+                    errorValue = errorValue.value;
+                  }
+
+                  // Try to extract readable error message
+                  if (typeof errorValue === "string") {
+                    errorMessage = `Transaction failed: ${errorValue}`;
+                  } else if (errorValue?.message) {
+                    errorMessage = `Transaction failed: ${errorValue.message}`;
+                  } else if (errorValue?.toString) {
+                    errorMessage = `Transaction failed: ${errorValue.toString()}`;
+                  } else {
+                    errorMessage = `Transaction failed: ${JSON.stringify(errorValue)}`;
+                  }
+                } catch (e) {
+                  // Fallback to stringifying the whole errorResult
+                  errorMessage = `Transaction failed: ${JSON.stringify(finalResponse.errorResult)}`;
+                }
+              } else if (finalResponse.status === "ERROR") {
+                errorMessage = `Transaction error: ${JSON.stringify(finalResponse)}`;
+              }
+
+              console.error("Transaction error:", {
+                status: finalResponse.status,
+                errorResult: finalResponse.errorResult,
+                fullResponse: finalResponse,
+                errorMessage,
+              });
+              throw new Error(errorMessage);
             }
 
             // Extract transaction hash from response
-            const txHash = sendResponse.hash || sendResponse.id || "";
+            const txHash = finalResponse.hash || finalResponse.id || "";
+            if (!txHash) {
+              throw new Error("Transaction sent but no hash returned");
+            }
+
             console.log("Transaction hash:", txHash);
             return txHash;
           } catch (signError: any) {

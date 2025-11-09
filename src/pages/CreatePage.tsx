@@ -387,74 +387,49 @@ export default function CreateEscrowPage() {
           [amount, milestoneDescriptions[idx] || ""] as [bigint, string]
       );
 
-      // Retry transaction with exponential backoff
-      let txAttempts = 0;
-      const maxTxAttempts = 3;
+      // Send transaction (no retry logic)
+      console.log("Sending create_escrow transaction...", {
+        args: {
+          depositor: wallet.address,
+          beneficiary: beneficiaryAddress || null,
+          arbiters,
+          required_confirmations: requiredConfirmations,
+          milestones,
+          token:
+            formData.useNativeToken || !formData.token || formData.token === ""
+              ? null // null for native XLM
+              : formData.token, // custom token address
+          total_amount: totalAmountInStroops.toString(),
+          duration: durationInSeconds,
+          project_title: formData.projectTitle,
+          project_description: formData.projectDescription,
+        },
+      });
 
-      while (txAttempts < maxTxAttempts) {
-        try {
-          console.log("Attempting to send create_escrow transaction...", {
-            attempt: txAttempts + 1,
-            maxAttempts: maxTxAttempts,
-            args: {
-              depositor: wallet.address,
-              beneficiary: beneficiaryAddress || null,
-              arbiters,
-              required_confirmations: requiredConfirmations,
-              milestones,
-              token:
-                formData.token && formData.token !== "" ? formData.token : null,
-              total_amount: totalAmountInStroops.toString(),
-              duration: durationInSeconds,
-              project_title: formData.projectTitle,
-              project_description: formData.projectDescription,
-            },
-          });
+      // Use the generated client's send method which expects an object
+      // The generated client handles Option types automatically - pass null for None
+      const txHash = await escrowContract.send("create_escrow", {
+        depositor: wallet.address,
+        beneficiary: beneficiaryAddress || null, // null for Option<Address>
+        arbiters: arbiters, // arbiters array
+        required_confirmations: requiredConfirmations,
+        milestones: milestones,
+        token:
+          formData.useNativeToken || !formData.token || formData.token === ""
+            ? null // null for native XLM
+            : formData.token, // custom token address
+        total_amount: totalAmountInStroops,
+        duration: durationInSeconds,
+        project_title: formData.projectTitle,
+        project_description: formData.projectDescription,
+      });
 
-          // Use the generated client's send method which expects an object
-          // The generated client handles Option types automatically - pass null for None
-          const txHash = await escrowContract.send("create_escrow", {
-            depositor: wallet.address,
-            beneficiary: beneficiaryAddress || null, // null for Option<Address>
-            arbiters: arbiters, // arbiters array
-            required_confirmations: requiredConfirmations,
-            milestones: milestones,
-            token:
-              formData.useNativeToken ||
-              !formData.token ||
-              formData.token === ""
-                ? null // null for native XLM
-                : formData.token, // custom token address
-            total_amount: totalAmountInStroops,
-            duration: durationInSeconds,
-            project_title: formData.projectTitle,
-            project_description: formData.projectDescription,
-          });
+      console.log("Transaction sent successfully, hash:", txHash);
 
-          console.log("Transaction sent successfully, hash:", txHash);
-
-          toast({
-            title: "Escrow Created!",
-            description: "Your escrow has been created successfully",
-          });
-          break;
-        } catch (txError: any) {
-          console.error("Transaction attempt failed:", txError);
-          txAttempts++;
-
-          if (txAttempts >= maxTxAttempts) {
-            console.error("Max transaction attempts reached, throwing error");
-            throw txError;
-          }
-
-          console.log(
-            `Retrying transaction in ${Math.pow(2, txAttempts) * 1000}ms...`
-          );
-          // Wait before retry with exponential backoff
-          const waitTime = Math.pow(2, txAttempts) * 1000; // 2s, 4s, 8s
-          await new Promise((resolve) => setTimeout(resolve, waitTime));
-        }
-      }
+      toast({
+        title: "Escrow Created!",
+        description: "Your escrow has been created successfully",
+      });
 
       // Wait for transaction confirmation
       // Stellar: Transaction is already confirmed when send() returns
@@ -467,55 +442,63 @@ export default function CreateEscrowPage() {
     } catch (error: any) {
       console.error("Error creating escrow:", error);
       let errorMessage = "Failed to create escrow";
+      let errorTitle = "Creation failed";
 
-      if (error.message?.includes("insufficient funds")) {
-        errorMessage = "Insufficient funds. Please check your balance.";
-      } else if (error.message?.includes("gas")) {
-        errorMessage = "Gas estimation failed. Please try again.";
-      } else if (error.message?.includes("revert")) {
-        errorMessage = "Transaction reverted. Please check your parameters.";
-      } else if (
-        error.message?.includes("user rejected") ||
-        error.message?.includes("rejected")
-      ) {
-        errorMessage = "Transaction was rejected by user.";
-      } else if (error.message?.includes("timeout")) {
-        errorMessage = "Transaction timeout. Please try again.";
-      } else if (error.message?.includes("Internal JSON-RPC error")) {
-        errorMessage =
-          "Network error occurred. Please try again - this usually works on the second attempt.";
-      } else if (error.code === -32603) {
-        errorMessage =
-          "RPC error occurred. Please try again - this usually works on the second attempt.";
-      } else if (error.message?.includes("Wallet not connected")) {
-        errorMessage = "Wallet not connected. Please connect your wallet.";
-      } else if (error.message?.includes("Transaction signing failed")) {
-        errorMessage =
-          "Transaction signing failed. Please check your wallet connection.";
+      // Extract error message from various error formats
+      if (error.message) {
+        if (error.message.includes("insufficient funds")) {
+          errorMessage = "Insufficient funds. Please check your balance.";
+        } else if (error.message.includes("gas")) {
+          errorMessage = "Gas estimation failed. Please try again.";
+        } else if (error.message.includes("revert")) {
+          errorMessage = "Transaction reverted. Please check your parameters.";
+        } else if (
+          error.message.includes("user rejected") ||
+          error.message.includes("rejected")
+        ) {
+          errorMessage = "Transaction was rejected by user.";
+        } else if (error.message.includes("timeout")) {
+          errorMessage = "Transaction timeout. Please try again.";
+        } else if (error.message.includes("Wallet not connected")) {
+          errorMessage = "Wallet not connected. Please connect your wallet.";
+        } else if (error.message.includes("Transaction signing failed")) {
+          errorMessage =
+            "Transaction signing failed. Please check your wallet connection.";
+        } else if (error.message.includes("Transaction failed")) {
+          errorMessage = error.message;
+        } else if (error.message.includes("Transaction error")) {
+          errorMessage = error.message;
+        } else {
+          errorMessage = error.message;
+        }
+      } else if (error.errorResult) {
+        // Handle Stellar RPC error format
+        try {
+          const errorValue =
+            typeof error.errorResult.value === "function"
+              ? error.errorResult.value()
+              : error.errorResult.value || error.errorResult;
+          errorMessage = `Transaction failed: ${JSON.stringify(errorValue)}`;
+        } catch (e) {
+          errorMessage = `Transaction failed: ${JSON.stringify(error.errorResult)}`;
+        }
       } else {
-        errorMessage = error.message || "Failed to create escrow";
+        errorMessage = error.toString() || "Failed to create escrow";
       }
 
+      // Show error toast
       toast({
-        title: "Creation failed",
+        title: errorTitle,
         description: errorMessage,
         variant: "destructive",
+        duration: 10000, // Show for 10 seconds
       });
 
-      // If it's an RPC error, show an additional helpful message
-      if (
-        error.message?.includes("Internal JSON-RPC error") ||
-        error.code === -32603
-      ) {
-        setTimeout(() => {
-          toast({
-            title: "💡 Tip",
-            description:
-              "This is a common network issue. Please try creating the escrow again - it usually works on the second attempt!",
-            variant: "default",
-          });
-        }, 2000);
-      }
+      console.error("Error details:", {
+        error,
+        message: errorMessage,
+        stack: error.stack,
+      });
     } finally {
       setIsSubmitting(false);
     }
