@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useWeb3 } from "@/contexts/web3-context";
 import { CONTRACTS } from "@/lib/web3/config";
+import { ContractService } from "@/lib/web3/contract-service";
 
 export function useJobCreatorStatus() {
   const { wallet, getContract } = useWeb3();
@@ -29,88 +30,62 @@ export function useJobCreatorStatus() {
         return;
       }
 
-      // Get total number of escrows
-      const totalEscrows = await contract.call("next_escrow_id");
-      const escrowCount = Number(totalEscrows);
+      // Check escrows directly using ContractService
+      // Don't rely on getNextEscrowId() - it might fail or timeout
+      const contractService = new ContractService(CONTRACTS.SECUREFLOW_ESCROW);
+      console.log(
+        `[useJobCreatorStatus] Checking escrows directly for wallet: ${wallet.address}`
+      );
 
-      // Check if current wallet has created any escrows
-      if (escrowCount > 1) {
-        for (let i = 1; i < escrowCount; i++) {
-          try {
-            const escrowSummary = await contract.call("get_escrow", i);
+      // Check up to 20 escrows (reasonable limit)
+      const maxEscrowsToCheck = 20;
+      for (let i = 1; i <= maxEscrowsToCheck; i++) {
+        try {
+          console.log(`[useJobCreatorStatus] Checking escrow ${i}...`);
+          const escrow = await contractService.getEscrow(i);
 
-            // Skip if escrow doesn't exist (Option::None)
-            if (
-              !escrowSummary ||
-              escrowSummary === null ||
-              escrowSummary === undefined
-            ) {
-              console.log(`⏭️ Escrow ${i} does not exist (Option::None)`);
-              continue;
+          // Skip if escrow doesn't exist
+          if (!escrow) {
+            console.log(`⏭️ Escrow ${i} does not exist`);
+            // If we've checked a few escrows and none exist, stop checking
+            if (i > 5) {
+              break;
             }
-
-            // Debug: Log the escrowSummary structure
-            console.log(`📦 Escrow ${i} summary:`, escrowSummary);
-            console.log(
-              `📦 Escrow ${i} type:`,
-              typeof escrowSummary,
-              Array.isArray(escrowSummary)
-            );
-            console.log(
-              `📦 Escrow ${i} keys:`,
-              escrowSummary ? Object.keys(escrowSummary) : "null"
-            );
-
-            // Handle both array and object formats
-            // If it's an Option<EscrowData> object, it might have a .depositor field
-            // If it's an array, depositor is at index [0]
-            let depositorAddress: string | null = null;
-
-            if (Array.isArray(escrowSummary)) {
-              // Array format: [depositor, beneficiary, ...]
-              depositorAddress = escrowSummary[0];
-            } else if (escrowSummary && typeof escrowSummary === "object") {
-              // Object format: check for depositor field
-              if (escrowSummary.depositor) {
-                depositorAddress = escrowSummary.depositor;
-              } else if (escrowSummary.creator) {
-                // Some places use 'creator' instead of 'depositor'
-                depositorAddress = escrowSummary.creator;
-              } else if (escrowSummary.payer) {
-                // Some places use 'payer' instead of 'depositor'
-                depositorAddress = escrowSummary.payer;
-              } else if (
-                escrowSummary._value &&
-                escrowSummary._value.depositor
-              ) {
-                // Option<EscrowData> format - unwrap the Option
-                depositorAddress = escrowSummary._value.depositor;
-              } else if (escrowSummary._value && escrowSummary._value.creator) {
-                depositorAddress = escrowSummary._value.creator;
-              }
-            }
-
-            console.log(`📦 Escrow ${i} depositor:`, depositorAddress);
-            console.log(`📦 Wallet address:`, wallet.address);
-
-            // Check if current user is the depositor (job creator)
-            const isMyJob =
-              wallet.address &&
-              depositorAddress &&
-              depositorAddress.toLowerCase().trim() ===
-                wallet.address.toLowerCase().trim();
-
-            if (isMyJob) {
-              console.log(`✅ User is job creator - found job ${i}`);
-              setIsJobCreator(true);
-              setLoading(false);
-              return;
-            }
-          } catch (error) {
-            console.error(`Error checking escrow ${i}:`, error);
-            // Skip escrows that don't exist
             continue;
           }
+
+          console.log(`📦 Escrow ${i} found:`, escrow);
+
+          // Extract depositor/creator address from escrow
+          // EscrowData has a 'creator' field (not 'depositor')
+          const depositorAddress = escrow.creator || escrow.depositor;
+          console.log(`📦 Escrow ${i} creator/depositor:`, depositorAddress);
+          console.log(`📦 Wallet address:`, wallet.address);
+
+          // Check if current user is the creator (job creator)
+          const isMyJob =
+            wallet.address &&
+            depositorAddress &&
+            depositorAddress.toLowerCase().trim() ===
+              wallet.address.toLowerCase().trim();
+
+          if (isMyJob) {
+            console.log(`✅ User is job creator - found job ${i}`);
+            setIsJobCreator(true);
+            setLoading(false);
+            return;
+          }
+        } catch (error) {
+          console.error(
+            `[useJobCreatorStatus] Error checking escrow ${i}:`,
+            error
+          );
+          // If we get an error, it might mean the escrow doesn't exist
+          // Stop checking after a few consecutive errors
+          if (i > 5) {
+            break;
+          }
+          continue;
         }
       }
 
@@ -122,7 +97,7 @@ export function useJobCreatorStatus() {
     } finally {
       setLoading(false);
     }
-  }, [wallet.isConnected, wallet.address, getContract]);
+  }, [wallet.isConnected, wallet.address]);
 
   useEffect(() => {
     checkJobCreatorStatus();

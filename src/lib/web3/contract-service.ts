@@ -717,7 +717,7 @@ export class ContractService {
     }>
   > {
     try {
-      // Try using the contract's get_applications function first
+      // Use manual simulation (get_applications is not in generated client)
       try {
         const contract = new Contract(this.contractId);
         const sourceAddress =
@@ -811,10 +811,102 @@ export class ContractService {
             console.warn(`[getApplications] Error parsing return value:`, e);
           }
         } else {
+          // Log the simulation structure to debug (but don't stringify - might have circular refs)
           console.warn(
             `[getApplications] No returnValue found in simulation. Available keys:`,
             Object.keys(simulation)
           );
+          // Check if result exists but in a different structure
+          if ((simulation as any).result) {
+            const result = (simulation as any).result;
+            console.warn(
+              `[getApplications] simulation.result exists:`,
+              result,
+              "Type:",
+              typeof result,
+              "Keys:",
+              result && typeof result === "object" ? Object.keys(result) : "N/A"
+            );
+            // Try to extract from result.retval
+            if (result && result.retval) {
+              try {
+                const retval = result.retval;
+                const parsed = scValToNative(retval as xdr.ScVal);
+                console.log(`[getApplications] Found result.retval:`, parsed);
+                if (Array.isArray(parsed)) {
+                  const applications = parsed.map((app: any) => ({
+                    freelancer: String(app.freelancer || app[0] || ""),
+                    cover_letter: String(
+                      app.cover_letter || app.coverLetter || app[1] || ""
+                    ),
+                    proposed_timeline: Number(
+                      app.proposed_timeline ||
+                        app.proposedTimeline ||
+                        app[2] ||
+                        0
+                    ),
+                    applied_at: Number(
+                      app.applied_at || app.appliedAt || app[3] || 0
+                    ),
+                  }));
+                  console.log(
+                    `[getApplications] Successfully retrieved ${applications.length} applications from result.retval`
+                  );
+                  return applications;
+                }
+              } catch (e) {
+                console.warn(
+                  `[getApplications] Error parsing result.retval:`,
+                  e
+                );
+              }
+            }
+          }
+          if ((simulation as any).transactionData) {
+            const txData = (simulation as any).transactionData;
+            console.warn(
+              `[getApplications] simulation.transactionData exists:`,
+              txData,
+              "Keys:",
+              txData && typeof txData === "object" ? Object.keys(txData) : "N/A"
+            );
+            if (txData && txData.result && txData.result.retval) {
+              try {
+                const retval = txData.result.retval;
+                const parsed = scValToNative(retval as xdr.ScVal);
+                console.log(
+                  `[getApplications] Found transactionData.result.retval:`,
+                  parsed
+                );
+                if (Array.isArray(parsed)) {
+                  const applications = parsed.map((app: any) => ({
+                    freelancer: String(app.freelancer || app[0] || ""),
+                    cover_letter: String(
+                      app.cover_letter || app.coverLetter || app[1] || ""
+                    ),
+                    proposed_timeline: Number(
+                      app.proposed_timeline ||
+                        app.proposedTimeline ||
+                        app[2] ||
+                        0
+                    ),
+                    applied_at: Number(
+                      app.applied_at || app.appliedAt || app[3] || 0
+                    ),
+                  }));
+                  console.log(
+                    `[getApplications] Successfully retrieved ${applications.length} applications from transactionData.result.retval`
+                  );
+                  return applications;
+                }
+              } catch (e) {
+                console.warn(
+                  `[getApplications] Error parsing transactionData.result.retval:`,
+                  e
+                );
+              }
+            }
+          }
         }
       } catch (contractError) {
         console.error(

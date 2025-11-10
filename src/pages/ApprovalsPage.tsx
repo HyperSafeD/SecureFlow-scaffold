@@ -72,43 +72,103 @@ export default function ApprovalsPage() {
 
     setLoading(true);
     try {
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      const nextEscrowId = Number(await contract.call("next_escrow_id"));
+      // Get current ledger sequence once (needed for timestamp conversion)
+      let currentLedger = 0;
+      try {
+        const { rpc } = await import("@stellar/stellar-sdk");
+        const { getCurrentNetwork } = await import("@/lib/web3/stellar-config");
+        const network = getCurrentNetwork();
+        const rpcServer = new rpc.Server(network.rpcUrl);
+        const latestLedger = await rpcServer.getLatestLedger();
+        currentLedger = latestLedger.sequence;
+      } catch (error) {
+        console.warn(
+          "Could not fetch current ledger, using approximate timestamp:",
+          error
+        );
+        // Fallback: use current time as approximation
+        const SECONDS_PER_LEDGER = 5;
+        currentLedger = Math.floor(Date.now() / 1000 / SECONDS_PER_LEDGER);
+      }
+
+      // Use ContractService instead of contract.call - it reads from blockchain
+      const { ContractService } = await import("@/lib/web3/contract-service");
+      const contractService = new ContractService(CONTRACTS.SECUREFLOW_ESCROW);
+
+      // Get next escrow ID from blockchain (not hardcoded)
+      const nextEscrowId = await contractService.getNextEscrowId();
+      console.log(
+        `[ApprovalsPage] next_escrow_id from blockchain: ${nextEscrowId}`
+      );
+
       const myJobs: JobWithApplications[] = [];
 
-      for (let i = 1; i < nextEscrowId; i++) {
+      // Check up to 20 escrows (reasonable limit)
+      const maxEscrowsToCheck = Math.min(nextEscrowId - 1, 20);
+      for (let i = 1; i <= maxEscrowsToCheck; i++) {
         try {
-          const escrowSummary = await contract.call("get_escrow", i);
+          console.log(`[ApprovalsPage] Checking escrow ${i}...`);
+          const escrow = await contractService.getEscrow(i);
+
+          if (!escrow) {
+            console.log(`[ApprovalsPage] Escrow ${i} does not exist`);
+            continue;
+          }
+
+          // Check if this is my job
           const isMyJob =
             wallet.address &&
-            escrowSummary[0] &&
-            escrowSummary[0].toLowerCase().trim() ===
+            escrow.creator &&
+            escrow.creator.toLowerCase().trim() ===
               wallet.address.toLowerCase().trim();
 
+          console.log(
+            `[ApprovalsPage] Escrow ${i} creator: ${escrow.creator}, isMyJob: ${isMyJob}`
+          );
+
           if (isMyJob) {
+            // Check if it's an open job (beneficiary is zero address)
             const isOpenJob =
-              escrowSummary[1] ===
-              "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+              !escrow.freelancer ||
+              escrow.freelancer ===
+                "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF" ||
+              escrow.freelancer === "";
+
+            console.log(
+              `[ApprovalsPage] Escrow ${i} isOpenJob: ${isOpenJob}, freelancer: ${escrow.freelancer}`
+            );
 
             if (isOpenJob) {
               let applicationCount = 0;
               const applications: Application[] = [];
 
-              // Use contractService to get applications from storage
+              // Get applications from storage
               try {
-                const { contractService } = await import(
-                  "@/lib/web3/contract-service"
+                console.log(
+                  `[ApprovalsPage] Fetching applications for job ${i}`
                 );
                 const apps = await contractService.getApplications(i);
+                console.log(
+                  `[ApprovalsPage] Got ${apps.length} applications for job ${i}:`,
+                  apps
+                );
                 applicationCount = apps.length;
 
                 // Convert to Application format
+                // IMPORTANT: applied_at is also a LEDGER SEQUENCE NUMBER, not a Unix timestamp!
+                // Calculate approximate timestamp: current time - (current_ledger - applied_at) * 5 seconds
+                const SECONDS_PER_LEDGER = 5;
                 for (const app of apps) {
+                  const appliedAtLedger = app.applied_at || 0;
+                  const ledgersAgo = currentLedger - appliedAtLedger;
+                  const secondsAgo = ledgersAgo * SECONDS_PER_LEDGER;
+                  const approxAppliedAt = Date.now() - secondsAgo * 1000;
+
                   applications.push({
                     freelancerAddress: app.freelancer,
                     coverLetter: app.cover_letter,
                     proposedTimeline: app.proposed_timeline,
-                    appliedAt: app.applied_at * 1000, // Convert to milliseconds
+                    appliedAt: approxAppliedAt, // Approximate timestamp from ledger sequence
                     status: "pending" as const,
                   });
                 }
@@ -124,20 +184,40 @@ export default function ApprovalsPage() {
                 applicationCount = 0;
               }
 
+              // IMPORTANT: created_at and deadline are LEDGER SEQUENCE NUMBERS, not timestamps!
+              // Stellar ledgers close approximately every 5 seconds
+              // Duration = (deadline - created_at) * 5 seconds
+              const SECONDS_PER_LEDGER = 5;
+              const ledgerDiff = escrow.deadline - escrow.created_at;
+              const durationInSeconds = ledgerDiff * SECONDS_PER_LEDGER;
+              const durationInDays = Math.max(
+                0,
+                durationInSeconds / (24 * 60 * 60)
+              );
+
+              // Calculate approximate timestamp: current time - (current_ledger - created_at) * 5 seconds
+              const ledgersAgo = currentLedger - escrow.created_at;
+              const secondsAgo = ledgersAgo * SECONDS_PER_LEDGER;
+              const approxCreatedAt = Date.now() - secondsAgo * 1000;
+
               const job: JobWithApplications = {
                 id: i.toString(),
-                payer: escrowSummary[0],
-                beneficiary: escrowSummary[1],
-                token: escrowSummary[7],
-                totalAmount: escrowSummary[4].toString(),
-                releasedAmount: escrowSummary[5].toString(),
-                status: getStatusFromNumber(Number(escrowSummary[3])),
-                createdAt: Number(escrowSummary[10]) * 1000,
-                duration:
-                  (Number(escrowSummary[8]) - Number(escrowSummary[10])) /
-                  (24 * 60 * 60), // Convert seconds to days
-                milestones: [],
-                projectDescription: escrowSummary[13] || "No description",
+                payer: escrow.creator,
+                beneficiary:
+                  escrow.freelancer ||
+                  "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+                token: escrow.token,
+                totalAmount: escrow.amount || "0",
+                releasedAmount: "0", // TODO: Get from escrow if available
+                status: getStatusFromNumber(escrow.status || 0),
+                createdAt: approxCreatedAt, // Approximate timestamp from ledger sequence
+                duration: durationInDays, // Duration in days (calculated correctly from ledger sequence)
+                milestones: escrow.milestones || [],
+                projectDescription:
+                  escrow.project_title ||
+                  escrow.project_description ||
+                  escrow.projectDescription ||
+                  "No description",
                 isOpenJob: true,
                 applications,
                 applicationCount: Number(applicationCount),
