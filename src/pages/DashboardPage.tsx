@@ -33,6 +33,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 export default function DashboardPage() {
   const { wallet, getContract } = useWeb3();
@@ -40,12 +43,12 @@ export default function DashboardPage() {
   const { addCrossWalletNotification } = useNotifications();
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "pending" | "active" | "completed" | "disputed"
   >("all");
-  const [roleFilter, setRoleFilter] = useState<"all" | "client" | "freelancer">(
-    "all"
-  );
+  const [sortFilter, setSortFilter] = useState<"newest" | "oldest">("newest");
   const [expandedEscrow, setExpandedEscrow] = useState<string | null>(null);
   const [submittingMilestone, setSubmittingMilestone] = useState<string | null>(
     null
@@ -146,8 +149,12 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchUserEscrows = async () => {
-    setLoading(true);
+  const fetchUserEscrows = async (isManualRefresh = false) => {
+    if (isManualRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       if (!wallet.isConnected || !wallet.address) {
         setEscrows([]);
@@ -401,7 +408,12 @@ export default function DashboardPage() {
       });
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    fetchUserEscrows(true);
   };
 
   // const getStatusBadge = (status: string, escrow?: Escrow) => { // Unused
@@ -829,7 +841,10 @@ export default function DashboardPage() {
     return (
       <div className="min-h-screen py-12">
         <div className="container mx-auto px-4">
-          <DashboardHeader />
+          <DashboardHeader
+            onRefresh={handleRefresh}
+            isRefreshing={isRefreshing}
+          />
           <DashboardLoading isConnected={wallet.isConnected} />
         </div>
       </div>
@@ -842,21 +857,33 @@ export default function DashboardPage() {
         <DashboardHeader />
         <DashboardStats escrows={escrows} />
 
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
-          <div className="flex-1">
-            <Label htmlFor="status-filter" className="mb-2 block">
-              Filter by Status
+        {/* Search and Filters */}
+        <div className="mb-6 flex flex-col sm:flex-row gap-4 items-end">
+          {/* Search Bar */}
+          <div className="flex-1 min-w-0">
+            <Input
+              type="text"
+              placeholder="Search projects by title or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full"
+            />
+          </div>
+
+          {/* Status Filter */}
+          <div className="w-full sm:w-[180px]">
+            <Label htmlFor="status-filter" className="mb-2 block text-sm">
+              Status
             </Label>
             <Select
               value={statusFilter}
               onValueChange={(value: any) => setStatusFilter(value)}
             >
               <SelectTrigger id="status-filter" className="w-full">
-                <SelectValue placeholder="All Statuses" />
+                <SelectValue placeholder="All Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
@@ -864,23 +891,40 @@ export default function DashboardPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex-1">
-            <Label htmlFor="role-filter" className="mb-2 block">
-              Filter by Role
+
+          {/* Sort Filter */}
+          <div className="w-full sm:w-[180px]">
+            <Label htmlFor="sort-filter" className="mb-2 block text-sm">
+              Sort
             </Label>
             <Select
-              value={roleFilter}
-              onValueChange={(value: any) => setRoleFilter(value)}
+              value={sortFilter}
+              onValueChange={(value: any) => setSortFilter(value)}
             >
-              <SelectTrigger id="role-filter" className="w-full">
-                <SelectValue placeholder="All Roles" />
+              <SelectTrigger id="sort-filter" className="w-full">
+                <SelectValue placeholder="Newest First" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="client">As Client</SelectItem>
-                <SelectItem value="freelancer">As Freelancer</SelectItem>
+                <SelectItem value="newest">Newest First</SelectItem>
+                <SelectItem value="oldest">Oldest First</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Refresh Button */}
+          <div>
+            <Button
+              variant="outline"
+              size="default"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-2 h-10"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
           </div>
         </div>
 
@@ -900,13 +944,21 @@ export default function DashboardPage() {
                 const matchesStatus =
                   statusFilter === "all" || escrow.status === statusFilter;
 
-                // Role filter
-                const matchesRole =
-                  roleFilter === "all" ||
-                  (roleFilter === "client" && escrow.isClient) ||
-                  (roleFilter === "freelancer" && escrow.isFreelancer);
+                // Search filter
+                const matchesSearch =
+                  !searchQuery ||
+                  escrow.projectDescription
+                    .toLowerCase()
+                    .includes(searchQuery.toLowerCase());
 
-                return matchesStatus && matchesRole;
+                return matchesStatus && matchesSearch;
+              })
+              .sort((a, b) => {
+                if (sortFilter === "newest") {
+                  return b.createdAt - a.createdAt;
+                } else {
+                  return a.createdAt - b.createdAt;
+                }
               })
               .map((escrow, index) => (
                 <EscrowCard

@@ -1,5 +1,3 @@
-
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DollarSign,
@@ -8,7 +6,10 @@ import {
   Clock,
   Pause,
   AlertTriangle,
+  Star,
+  Award,
 } from "lucide-react";
+import type { Badge as BadgeType } from "@/lib/web3/types";
 
 interface FreelancerStatsProps {
   escrows: Array<{
@@ -19,24 +20,32 @@ interface FreelancerStatsProps {
       status: string;
     }>;
   }>;
+  averageRating?: number;
+  ratingCount?: number;
+  badge?: BadgeType;
 }
 
-export function FreelancerStats({ escrows }: FreelancerStatsProps) {
+export function FreelancerStats({
+  escrows,
+  averageRating = 0,
+  ratingCount = 0,
+  badge = "Beginner",
+}: FreelancerStatsProps) {
   const totalEarnings = escrows.reduce(
     (sum, escrow) => sum + Number.parseFloat(escrow.releasedAmount),
-    0,
+    0
   );
 
   const totalValue = escrows.reduce(
     (sum, escrow) => sum + Number.parseFloat(escrow.totalAmount),
-    0,
+    0
   );
 
   // Helper function to check if an escrow is terminated
   const isEscrowTerminated = (escrow: any) => {
     return escrow.milestones.some(
       (milestone: any) =>
-        milestone.status === "disputed" || milestone.status === "rejected",
+        milestone.status === "disputed" || milestone.status === "rejected"
     );
   };
 
@@ -44,7 +53,7 @@ export function FreelancerStats({ escrows }: FreelancerStatsProps) {
     // A project is completed if all milestones are approved
     if (escrow.milestones.length === 0) return false;
     return escrow.milestones.every(
-      (milestone) => milestone.status === "approved",
+      (milestone) => milestone.status === "approved"
     );
   }).length;
 
@@ -54,10 +63,10 @@ export function FreelancerStats({ escrows }: FreelancerStatsProps) {
     if (isEscrowTerminated(escrow)) return false; // Exclude terminated projects
 
     const hasApprovedMilestones = escrow.milestones.some(
-      (milestone) => milestone.status === "approved",
+      (milestone) => milestone.status === "approved"
     );
     const allMilestonesApproved = escrow.milestones.every(
-      (milestone) => milestone.status === "approved",
+      (milestone) => milestone.status === "approved"
     );
     return hasApprovedMilestones && !allMilestonesApproved;
   }).length;
@@ -68,7 +77,7 @@ export function FreelancerStats({ escrows }: FreelancerStatsProps) {
     if (isEscrowTerminated(escrow)) return false; // Exclude terminated projects
 
     return escrow.milestones.every(
-      (milestone) => milestone.status === "pending",
+      (milestone) => milestone.status === "pending"
     );
   }).length;
 
@@ -77,8 +86,10 @@ export function FreelancerStats({ escrows }: FreelancerStatsProps) {
     return isEscrowTerminated(escrow);
   }).length;
 
+  const badgeLabel = badge || "Beginner";
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 md:gap-6 mb-8">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 md:gap-6 mb-8">
       <Card className="glass border-primary/20 p-4 md:p-6">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Total Earnings</CardTitle>
@@ -116,28 +127,6 @@ export function FreelancerStats({ escrows }: FreelancerStatsProps) {
         </CardContent>
       </Card>
 
-      <Card className="glass border-primary/20 p-4 md:p-6">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Active</CardTitle>
-          <Clock className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{activeProjects}</div>
-          <p className="text-xs text-muted-foreground">projects</p>
-        </CardContent>
-      </Card>
-
-      <Card className="glass border-primary/20 p-4 md:p-6">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Pending</CardTitle>
-          <Pause className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{pendingProjects}</div>
-          <p className="text-xs text-muted-foreground">projects</p>
-        </CardContent>
-      </Card>
-
       <Card className="glass border-destructive/20 p-4 md:p-6">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Terminated</CardTitle>
@@ -146,6 +135,32 @@ export function FreelancerStats({ escrows }: FreelancerStatsProps) {
         <CardContent>
           <div className="text-2xl font-bold">{terminatedProjects}</div>
           <p className="text-xs text-muted-foreground">projects</p>
+        </CardContent>
+      </Card>
+
+      <Card className="glass border-primary/20 p-4 md:p-6">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Rating</CardTitle>
+          <Star className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">
+            {ratingCount > 0 ? averageRating.toFixed(1) : "0.0"}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {ratingCount > 0 ? `(${ratingCount} ratings)` : "No ratings yet"}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="glass border-primary/20 p-4 md:p-6">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Badge Tier</CardTitle>
+          <Award className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{badgeLabel}</div>
+          <p className="text-xs text-muted-foreground">Freelancer level</p>
         </CardContent>
       </Card>
     </div>

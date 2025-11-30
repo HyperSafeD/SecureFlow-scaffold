@@ -45,6 +45,7 @@ import {
   Play,
   // RefreshCw, // Unused
   Clock,
+  Star,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -55,6 +56,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { RefreshCw } from "lucide-react";
 
 interface Escrow {
   id: string;
@@ -90,12 +93,20 @@ export default function FreelancerPage() {
   // const { executeTransaction, isSmartAccountReady } = useSmartAccount();
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "pending" | "active" | "completed" | "disputed"
   >("all");
-  const [milestoneFilter, setMilestoneFilter] = useState<
-    "all" | "pending" | "submitted" | "approved" | "rejected" | "disputed"
-  >("all");
+  const [sortFilter, setSortFilter] = useState<"newest" | "oldest">("newest");
+  const [averageRating, setAverageRating] = useState<number>(0);
+  const [ratingCount, setRatingCount] = useState<number>(0);
+  const [badge, setBadge] = useState<
+    "Beginner" | "Intermediate" | "Advanced" | "Expert"
+  >("Beginner");
+  const [escrowRatings, setEscrowRatings] = useState<
+    Record<string, { rating: number; review: string }>
+  >({});
   const [submittingMilestone, setSubmittingMilestone] = useState<string | null>(
     null
   );
@@ -176,8 +187,12 @@ export default function FreelancerPage() {
     };
   }, []);
 
-  const fetchFreelancerEscrows = async () => {
-    setLoading(true);
+  const fetchFreelancerEscrows = async (isManualRefresh = false) => {
+    if (isManualRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       if (!wallet.isConnected || !wallet.address) {
         return;
@@ -418,6 +433,46 @@ export default function FreelancerPage() {
       );
       setEscrows(freelancerEscrows);
 
+      // Fetch badge and rating for the freelancer
+      if (wallet.address) {
+        try {
+          const badgeData = await contractService.getBadge(wallet.address);
+          setBadge(badgeData);
+
+          const ratingData = await contractService.getAverageRating(
+            wallet.address
+          );
+          setAverageRating(ratingData.average);
+          setRatingCount(ratingData.count);
+        } catch (error) {
+          console.error("[FreelancerPage] Error fetching badge/rating:", error);
+        }
+      }
+
+      // Fetch ratings for completed escrows
+      const ratings: Record<string, { rating: number; review: string }> = {};
+      for (const escrow of freelancerEscrows) {
+        if (escrow.status === "completed") {
+          try {
+            const rating = await contractService.getRating(
+              Number.parseInt(escrow.id, 10)
+            );
+            if (rating) {
+              ratings[escrow.id] = {
+                rating: rating.rating,
+                review: rating.review,
+              };
+            }
+          } catch (error) {
+            console.error(
+              `[FreelancerPage] Error fetching rating for escrow ${escrow.id}:`,
+              error
+            );
+          }
+        }
+      }
+      setEscrowRatings(ratings);
+
       // Update submitted milestones based on current data
       const currentSubmittedMilestones = new Set<string>();
       freelancerEscrows.forEach((escrow) => {
@@ -443,7 +498,12 @@ export default function FreelancerPage() {
       });
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    fetchFreelancerEscrows(true);
   };
 
   const startWork = async (escrowId: string) => {
@@ -1038,23 +1098,13 @@ export default function FreelancerPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-8">
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-              Freelancer Dashboard
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              Manage your assigned projects and track your earnings
-            </p>
-          </div>
-          <Button
-            onClick={fetchFreelancerEscrows}
-            variant="outline"
-            size="sm"
-            disabled={loading}
-          >
-            {loading ? "Refreshing..." : "Refresh"}
-          </Button>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+            Freelancer Dashboard
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            Manage your assigned projects and track your earnings
+          </p>
         </div>
 
         {loading ? (
@@ -1077,23 +1127,40 @@ export default function FreelancerPage() {
         ) : (
           <div className="space-y-6">
             {/* Stats Section */}
-            <FreelancerStats escrows={escrows} />
+            <FreelancerStats
+              escrows={escrows}
+              averageRating={averageRating}
+              ratingCount={ratingCount}
+              badge={badge}
+            />
 
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-6">
-              <div className="flex-1">
-                <Label htmlFor="status-filter" className="mb-2 block">
-                  Filter by Status
+            {/* Search and Filters */}
+            <div className="mb-6 flex flex-col sm:flex-row gap-4 items-end">
+              {/* Search Bar */}
+              <div className="flex-1 min-w-0">
+                <Input
+                  type="text"
+                  placeholder="Search projects by title or description..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Status Filter */}
+              <div className="w-full sm:w-[180px]">
+                <Label htmlFor="status-filter" className="mb-2 block text-sm">
+                  Status
                 </Label>
                 <Select
                   value={statusFilter}
                   onValueChange={(value: any) => setStatusFilter(value)}
                 >
                   <SelectTrigger id="status-filter" className="w-full">
-                    <SelectValue placeholder="All Statuses" />
+                    <SelectValue placeholder="All Status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
@@ -1101,26 +1168,40 @@ export default function FreelancerPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex-1">
-                <Label htmlFor="milestone-filter" className="mb-2 block">
-                  Filter by Milestone Status
+
+              {/* Sort Filter */}
+              <div className="w-full sm:w-[180px]">
+                <Label htmlFor="sort-filter" className="mb-2 block text-sm">
+                  Sort
                 </Label>
                 <Select
-                  value={milestoneFilter}
-                  onValueChange={(value: any) => setMilestoneFilter(value)}
+                  value={sortFilter}
+                  onValueChange={(value: any) => setSortFilter(value)}
                 >
-                  <SelectTrigger id="milestone-filter" className="w-full">
-                    <SelectValue placeholder="All Milestones" />
+                  <SelectTrigger id="sort-filter" className="w-full">
+                    <SelectValue placeholder="Newest First" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Milestones</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="submitted">Submitted</SelectItem>
-                    <SelectItem value="approved">Approved</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                    <SelectItem value="disputed">Disputed</SelectItem>
+                    <SelectItem value="newest">Newest First</SelectItem>
+                    <SelectItem value="oldest">Oldest First</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Refresh Button */}
+              <div>
+                <Button
+                  variant="outline"
+                  size="default"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  className="flex items-center gap-2 h-10"
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+                  />
+                  Refresh
+                </Button>
               </div>
             </div>
 
@@ -1132,12 +1213,21 @@ export default function FreelancerPage() {
                   const matchesStatus =
                     statusFilter === "all" || escrow.status === statusFilter;
 
-                  // Milestone filter - check if any milestone matches
-                  const matchesMilestone =
-                    milestoneFilter === "all" ||
-                    escrow.milestones.some((m) => m.status === milestoneFilter);
+                  // Search filter
+                  const matchesSearch =
+                    !searchQuery ||
+                    escrow.projectDescription
+                      .toLowerCase()
+                      .includes(searchQuery.toLowerCase());
 
-                  return matchesStatus && matchesMilestone;
+                  return matchesStatus && matchesSearch;
+                })
+                .sort((a, b) => {
+                  if (sortFilter === "newest") {
+                    return b.createdAt - a.createdAt;
+                  } else {
+                    return a.createdAt - b.createdAt;
+                  }
                 })
                 .map((escrow) => (
                   <motion.div
@@ -1192,7 +1282,7 @@ export default function FreelancerPage() {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
                           <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
                             <DollarSign className="h-5 w-5 text-green-600 dark:text-green-400" />
                             <div>
@@ -1275,6 +1365,32 @@ export default function FreelancerPage() {
                               </p>
                             </div>
                           </div>
+                          {escrow.status === "completed" &&
+                            escrowRatings[escrow.id] && (
+                              <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                                <Star className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                                <div>
+                                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                                    Client Rating
+                                  </p>
+                                  <p className="font-semibold text-yellow-700 dark:text-yellow-400 flex items-center gap-1">
+                                    {Array.from({ length: 5 }, (_, i) => (
+                                      <Star
+                                        key={i}
+                                        className={`h-4 w-4 ${
+                                          i < escrowRatings[escrow.id].rating
+                                            ? "fill-yellow-400 text-yellow-400"
+                                            : "text-gray-300"
+                                        }`}
+                                      />
+                                    ))}
+                                    <span className="ml-1">
+                                      {escrowRatings[escrow.id].rating}/5
+                                    </span>
+                                  </p>
+                                </div>
+                              </div>
+                            )}
                         </div>
 
                         {/* Milestones - Compact Design */}
