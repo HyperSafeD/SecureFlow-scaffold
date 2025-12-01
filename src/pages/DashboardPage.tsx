@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { useWeb3 } from "@/contexts/web3-context";
 import { useToast } from "@/hooks/use-toast";
@@ -42,8 +42,14 @@ export default function DashboardPage() {
   const { toast } = useToast();
   const { addCrossWalletNotification } = useNotifications();
   const [escrows, setEscrows] = useState<Escrow[]>([]);
+  const escrowsRef = useRef<Escrow[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    escrowsRef.current = escrows;
+  }, [escrows]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "pending" | "active" | "completed" | "disputed"
@@ -136,7 +142,8 @@ export default function DashboardPage() {
       // Wait a moment for blockchain state to update
       await new Promise((resolve) => setTimeout(resolve, 2000));
       // Refresh the escrow data without reloading the page
-      fetchUserEscrows();
+      // Use manual refresh flag to prevent showing loading screen
+      fetchUserEscrows(true);
     };
 
     window.addEventListener("escrowUpdated", handleEscrowUpdated);
@@ -150,19 +157,32 @@ export default function DashboardPage() {
   }, []);
 
   const fetchUserEscrows = async (isManualRefresh = false) => {
-    const previousEscrowsCount = escrows.length;
+    // Use ref to get the most current escrows, not the stale closure value
+    const previousEscrows = escrowsRef.current;
+    const previousEscrowsCount = previousEscrows.length;
     console.log(
-      `[DashboardPage] fetchUserEscrows called. Previous escrows: ${previousEscrowsCount}, isManualRefresh: ${isManualRefresh}`
+      `[DashboardPage] fetchUserEscrows called. Previous escrows: ${previousEscrowsCount}, isManualRefresh: ${isManualRefresh}`,
+      {
+        escrows: previousEscrows.map((e) => ({
+          id: e.id,
+          title: e.projectDescription,
+        })),
+      }
     );
 
+    // Don't set loading to true if we're refreshing after an operation - preserve UI
     if (isManualRefresh) {
       setIsRefreshing(true);
-    } else {
+    } else if (previousEscrowsCount === 0) {
+      // Only set loading if we don't have escrows yet (initial load)
       setLoading(true);
     }
     try {
       if (!wallet.isConnected || !wallet.address) {
-        setEscrows([]);
+        // Only clear escrows if we're doing an initial load, not a refresh
+        if (!isManualRefresh && previousEscrowsCount === 0) {
+          setEscrows([]);
+        }
         setLoading(false);
         return;
       }
@@ -431,15 +451,28 @@ export default function DashboardPage() {
         `[DashboardPage] Found ${userEscrows.length} escrows for user (had ${previousEscrowsCount} before)`
       );
 
-      // If we had escrows before but now have 0, log a warning
+      // If we had escrows before but now have 0, preserve existing escrows and log warning
       if (previousEscrowsCount > 0 && userEscrows.length === 0) {
         console.warn(
-          "[DashboardPage] WARNING: Had escrows before but fetch returned 0. This might indicate a problem."
+          "[DashboardPage] WARNING: Had escrows before but fetch returned 0. Preserving existing escrows.",
+          {
+            previousEscrows: previousEscrows.map((e) => ({
+              id: e.id,
+              title: e.projectDescription,
+            })),
+            isManualRefresh,
+          }
         );
+        // Don't update escrows - keep what we had
+        // This prevents the dashboard from going empty after operations
+        return;
       }
 
       // Always update escrows if fetch was successful
       // The error handling in catch block will preserve escrows if fetch fails
+      console.log(
+        `[DashboardPage] Setting escrows to ${userEscrows.length} items`
+      );
       setEscrows(userEscrows);
     } catch (error) {
       console.error("[DashboardPage] Error fetching escrows:", error);
@@ -620,7 +653,7 @@ export default function DashboardPage() {
       // Wait a moment for blockchain state to update
       await new Promise((resolve) => setTimeout(resolve, 2000));
       try {
-        await fetchUserEscrows();
+        await fetchUserEscrows(true);
       } catch (refreshError: any) {
         console.error(
           "[DashboardPage] Error refreshing escrows after dispute:",
@@ -710,7 +743,7 @@ export default function DashboardPage() {
       // Wait a moment for blockchain state to update
       await new Promise((resolve) => setTimeout(resolve, 2000));
       try {
-        await fetchUserEscrows();
+        await fetchUserEscrows(true);
       } catch (refreshError: any) {
         console.error(
           "[DashboardPage] Error refreshing escrows after opening dispute:",
@@ -803,8 +836,9 @@ export default function DashboardPage() {
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Refresh the escrow data without reloading the page
+      // Use manual refresh flag to prevent showing loading screen
       try {
-        await fetchUserEscrows();
+        await fetchUserEscrows(true);
       } catch (refreshError: any) {
         console.error(
           "[DashboardPage] Error refreshing escrows after approval:",
@@ -877,8 +911,9 @@ export default function DashboardPage() {
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Refresh the escrow data without reloading the page
+      // Use manual refresh flag to prevent showing loading screen
       try {
-        await fetchUserEscrows();
+        await fetchUserEscrows(true);
       } catch (refreshError: any) {
         console.error(
           "[DashboardPage] Error refreshing escrows after rejection:",
@@ -965,10 +1000,14 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen py-12">
       <div className="container mx-auto px-4">
-        <DashboardHeader />
-
-        {/* Refresh Button */}
-        <div className="mb-4 flex justify-end">
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-4xl md:text-5xl font-bold mb-2">Dashboard</h1>
+            <p className="text-xl text-muted-foreground">
+              Manage your escrows and track your projects
+            </p>
+          </div>
+          {/* Refresh Button */}
           <Button
             variant="outline"
             size="default"

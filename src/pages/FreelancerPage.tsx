@@ -1099,13 +1099,28 @@ export default function FreelancerPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-            Freelancer Dashboard
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Manage your assigned projects and track your earnings
-          </p>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+              Freelancer Dashboard
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              Manage your assigned projects and track your earnings
+            </p>
+          </div>
+          {/* Refresh Button */}
+          <Button
+            variant="outline"
+            size="default"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
         </div>
 
         {loading ? (
@@ -1187,22 +1202,6 @@ export default function FreelancerPage() {
                     <SelectItem value="oldest">Oldest First</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-
-              {/* Refresh Button */}
-              <div>
-                <Button
-                  variant="outline"
-                  size="default"
-                  onClick={handleRefresh}
-                  disabled={isRefreshing}
-                  className="flex items-center gap-2 h-10"
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
-                  />
-                  Refresh
-                </Button>
               </div>
             </div>
 
