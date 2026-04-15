@@ -4,6 +4,9 @@ import { Briefcase, DollarSign, Clock, User } from "lucide-react";
 interface JobsStatsProps {
   jobs: Array<{
     totalAmount: string;
+    /**
+     * Duration in **days** (already converted from ledgers/timestamps upstream).
+     */
     duration: number;
   }>;
   openJobsCount?: number; // Total escrows from blockchain
@@ -19,9 +22,19 @@ export function JobsStats({
     (sum, job) => sum + Number.parseFloat(job.totalAmount),
     0
   );
+
+  // `duration` is not consistently defined across pages (some pass seconds, some pass days).
+  // Normalize here so the UI stays correct.
+  const durationDays = jobs.map((job) => {
+    const d = Number(job.duration) || 0;
+    // If it's large, it's almost certainly seconds.
+    if (d > 3650) return d / (24 * 60 * 60);
+    return d;
+  });
+
   const avgDuration =
-    jobs.length > 0
-      ? jobs.reduce((sum, job) => sum + job.duration, 0) / jobs.length
+    durationDays.length > 0
+      ? durationDays.reduce((sum, d) => sum + d, 0) / durationDays.length
       : 0;
 
   return (
@@ -34,7 +47,7 @@ export function JobsStats({
               {openJobsCount !== undefined ? openJobsCount : jobs.length}
             </p>
           </div>
-          <Briefcase className="h-8 w-8 md:h-10 md:w-10 text-primary opacity-50 flex-shrink-0" />
+          <Briefcase className="h-8 w-8 md:h-10 md:w-10 text-primary opacity-50 shrink-0" />
         </div>
       </Card>
 
@@ -46,7 +59,7 @@ export function JobsStats({
               {(totalValue / 1e7).toFixed(2)} tokens
             </p>
           </div>
-          <DollarSign className="h-8 w-8 md:h-10 md:w-10 text-accent opacity-50 flex-shrink-0" />
+          <DollarSign className="h-8 w-8 md:h-10 md:w-10 text-accent opacity-50 shrink-0" />
         </div>
       </Card>
 
@@ -55,10 +68,10 @@ export function JobsStats({
           <div className="min-w-0 flex-1">
             <p className="text-sm text-muted-foreground mb-1">Avg. Duration</p>
             <p className="text-2xl md:text-3xl font-bold break-all">
-              {Math.round(avgDuration / (24 * 60 * 60))} days
+              {Math.round(avgDuration)} days
             </p>
           </div>
-          <Clock className="h-8 w-8 md:h-10 md:w-10 text-primary opacity-50 flex-shrink-0" />
+          <Clock className="h-8 w-8 md:h-10 md:w-10 text-primary opacity-50 shrink-0" />
         </div>
       </Card>
 
@@ -80,7 +93,7 @@ export function JobsStats({
             )}
           </div>
           <User
-            className={`h-8 w-8 md:h-10 md:w-10 opacity-50 flex-shrink-0 ${ongoingProjectsCount >= 3 ? "text-red-600 dark:text-red-400" : "text-accent"}`}
+            className={`h-8 w-8 md:h-10 md:w-10 opacity-50 shrink-0 ${ongoingProjectsCount >= 3 ? "text-red-600 dark:text-red-400" : "text-accent"}`}
           />
         </div>
       </Card>

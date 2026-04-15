@@ -39,7 +39,7 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function AdminPage() {
-  const { wallet, getContract } = useWeb3();
+  const { wallet } = useWeb3();
   const {
     isAdmin,
     isOwner,
@@ -82,26 +82,9 @@ export default function AdminPage() {
 
   const fetchContractOwner = async () => {
     try {
-      // Get owner from contract
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      if (contract) {
-        const owner = await contract.owner();
-        if (owner) {
-          setContractOwner(owner);
-        } else {
-          // Fallback to env variable
-          const ownerFromEnv = import.meta.env.VITE_OWNER_ADDRESS;
-          if (ownerFromEnv) {
-            setContractOwner(ownerFromEnv);
-          }
-        }
-      } else {
-        // Fallback to env variable
-        const ownerFromEnv = import.meta.env.VITE_OWNER_ADDRESS;
-        if (ownerFromEnv) {
-          setContractOwner(ownerFromEnv);
-        }
-      }
+      // Get owner from Soroban instance storage
+      const owner = await contractService.getOwner();
+      setContractOwner(owner);
     } catch (error) {
       console.error("Error fetching contract owner:", error);
       // Fallback to env variable

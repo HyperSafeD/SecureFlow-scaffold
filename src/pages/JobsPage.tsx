@@ -112,48 +112,19 @@ export default function JobsPage() {
 
   const countOngoingProjects = async () => {
     try {
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
+      if (!wallet.address) {
+        setOngoingProjectsCount(0);
+        return;
+      }
 
-      // Get total number of escrows
-      const totalEscrows = await contract.call("next_escrow_id");
-      const escrowCount = Number(totalEscrows);
+      // Use the contract's user->escrows index instead of relying on the legacy wrapper shape.
+      const escrowIds = await contractService.getUserEscrows(wallet.address);
 
       let ongoingCount = 0;
-
-      // Check all escrows to count ongoing projects for this user (both as client and freelancer)
-      if (escrowCount > 1) {
-        for (let i = 1; i < escrowCount; i++) {
-          try {
-            const escrowSummary = await contract.call("get_escrow", i);
-
-            const payerAddress = escrowSummary[0]; // depositor/client
-            const beneficiaryAddress = escrowSummary[1]; // beneficiary/freelancer
-            const userAddress = wallet.address;
-
-            // Check if current user is either the payer (client) or beneficiary (freelancer)
-            const isPayer =
-              payerAddress &&
-              userAddress &&
-              payerAddress.toLowerCase() === userAddress.toLowerCase();
-            const isBeneficiary =
-              beneficiaryAddress &&
-              userAddress &&
-              beneficiaryAddress.toLowerCase() === userAddress.toLowerCase();
-
-            // Count projects where user is involved (as client or freelancer)
-            if (isPayer || isBeneficiary) {
-              const status = Number(escrowSummary[3]); // status is at index 3
-              // Count active and pending projects (status 0 = pending, 1 = active)
-              // Also count any project that's not completed, disputed, or cancelled
-              if (status === 0 || status === 1) {
-                ongoingCount++;
-              }
-            }
-          } catch (error) {
-            // Skip escrows that don't exist or can't be accessed
-            continue;
-          }
-        }
+      for (const id of escrowIds) {
+        const escrow = await contractService.getEscrow(id);
+        if (!escrow) continue;
+        if (escrow.status === 0 || escrow.status === 1) ongoingCount++;
       }
 
       setOngoingProjectsCount(ongoingCount);

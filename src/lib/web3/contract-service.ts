@@ -68,11 +68,41 @@ export class ContractService {
     this.rpcServer = new rpc.Server(this.network.rpcUrl);
   }
 
+  private syncFromConfig() {
+    const nextContractId = (CONTRACTS.SECUREFLOW_ESCROW || "").trim();
+    const nextNetwork = getCurrentNetwork();
+
+    const contractChanged = nextContractId !== this.contractId;
+    const networkChanged =
+      nextNetwork.rpcUrl !== this.network.rpcUrl ||
+      nextNetwork.networkPassphrase !== this.network.networkPassphrase;
+
+    if (!contractChanged && !networkChanged) return;
+
+    this.contractId = nextContractId;
+    this.network = nextNetwork;
+    this.client = new SecureFlowClient({
+      contractId: this.contractId,
+      networkPassphrase: this.network.networkPassphrase,
+      rpcUrl: this.network.rpcUrl,
+    });
+    this.rpcServer = new rpc.Server(this.network.rpcUrl);
+  }
+
+  private assertValidContractId() {
+    // Soroban contract IDs are StrKey and start with C + 55 chars (total 56)
+    if (!this.contractId || !/^C[A-Z2-7]{55}$/.test(this.contractId)) {
+      throw new Error(`Invalid contract ID: ${this.contractId || "(empty)"}`);
+    }
+  }
+
   /**
    * Read operations - use client directly
    */
   async getEscrow(escrowId: number): Promise<EscrowData | null> {
     try {
+      this.syncFromConfig();
+      this.assertValidContractId();
       // Use the RPC server directly to avoid the generated client's type checking
       // The generated client expects Option<EscrowData> but the contract returns a map directly
       const contract = new Contract(this.contractId);
@@ -1623,6 +1653,7 @@ export class ContractService {
   }
 
   async isJobCreationPaused(_address?: string): Promise<boolean> {
+    this.syncFromConfig();
     const health = await this.probeEscrowContractHealth();
     if (!health.ok) {
       console.error("Error checking pause status:", health.userMessage);
@@ -1636,6 +1667,7 @@ export class ContractService {
    * Use this instead of swallowing errors in isJobCreationPaused when driving UX.
    */
   async probeEscrowContractHealth(): Promise<EscrowContractHealth> {
+    this.syncFromConfig();
     if (!this.contractId?.trim()) {
       return {
         ok: false,
@@ -1650,6 +1682,7 @@ export class ContractService {
       "Soroban testnet resets remove older deployments.";
 
     try {
+      this.assertValidContractId();
       const assembledTx = await this.client.is_job_creation_paused({
         simulate: true,
       });
@@ -1709,6 +1742,8 @@ export class ContractService {
 
   async getOwner(): Promise<string> {
     try {
+      this.syncFromConfig();
+      this.assertValidContractId();
       // Call the contract's get_owner function via simulation
       const contract = new Contract(this.contractId);
 

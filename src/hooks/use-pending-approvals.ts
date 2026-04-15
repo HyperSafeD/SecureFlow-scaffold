@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { useWeb3 } from "@/contexts/web3-context";
-import { CONTRACTS } from "@/lib/web3/config";
+import { contractService } from "@/lib/web3/contract-service";
 
 export function usePendingApprovals() {
-  const { wallet, getContract } = useWeb3();
+  const { wallet } = useWeb3();
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -19,58 +19,33 @@ export function usePendingApprovals() {
   const checkPendingApprovals = async () => {
     setLoading(true);
     try {
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      if (!contract) {
+      if (!wallet.address) {
         setHasPendingApprovals(false);
         return;
       }
 
-      // Get total number of escrows
-      const totalEscrows = await contract.call("next_escrow_id");
-      const escrowCount = Number(totalEscrows);
+      // Use the contract’s user escrows index (fast + accurate)
+      const escrowIds = await contractService.getUserEscrows(wallet.address);
 
-      // Check if current wallet has any jobs with applications
-      if (escrowCount > 1) {
-        for (let i = 1; i < escrowCount; i++) {
-          try {
-            const escrowSummary = await contract.call("get_escrow", i);
+      for (const id of escrowIds) {
+        const escrow = await contractService.getEscrow(id);
+        if (!escrow) continue;
 
-            // Check if current user is the depositor (job creator)
-            const isMyJob =
-              wallet.address &&
-              escrowSummary[0] &&
-              escrowSummary[0].toLowerCase().trim() ===
-                wallet.address.toLowerCase().trim();
+        const isMyJob =
+          escrow.creator?.toLowerCase().trim() === wallet.address.toLowerCase().trim();
+        if (!isMyJob) continue;
 
-            if (isMyJob) {
-              // Check if this is an open job (no freelancer assigned yet)
-              const isOpenJob =
-                escrowSummary[1] ===
-                "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+        const isOpenJob =
+          !escrow.freelancer ||
+          escrow.freelancer ===
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF" ||
+          escrow.freelancer === "";
+        if (!isOpenJob) continue;
 
-              if (isOpenJob) {
-                // Check if there are applications for this job using contractService
-                try {
-                  const { contractService } = await import(
-                    "@/lib/web3/contract-service"
-                  );
-                  const applications = await contractService.getApplications(i);
-
-                  if (applications && applications.length > 0) {
-                    setHasPendingApprovals(true);
-                    setLoading(false);
-                    return;
-                  }
-                } catch (error) {
-                  // Skip if can't get applications
-                  continue;
-                }
-              }
-            }
-          } catch (error) {
-            // Skip escrows that don't exist
-            continue;
-          }
+        const applications = await contractService.getApplications(id);
+        if (applications && applications.length > 0) {
+          setHasPendingApprovals(true);
+          return;
         }
       }
 

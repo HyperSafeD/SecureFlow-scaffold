@@ -244,8 +244,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
       if (walletId && walletAddr) {
         wallet.setWallet(walletId);
-        const addressResult = await wallet.getAddress();
-        const publicKey = addressResult.address;
+        // Avoid calling `getAddress()` again here (it may re-open a wallet popup,
+        // and some wallets intermittently fail during HMR / tab focus changes).
+        // `connectWalletUtil()` already populated storage once the user approved.
+        const publicKey = walletAddr;
 
         if (!publicKey) {
           toast({

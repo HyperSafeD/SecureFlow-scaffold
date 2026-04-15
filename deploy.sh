@@ -92,10 +92,15 @@ CONTRACT_ID=$(
   echo "$DEPLOY_OUTPUT" | awk '
     {
       # If the line itself is a contract id, keep it
-      if ($0 ~ /^C[A-Z2-7]{55}$/) id=$0
+      if ($0 ~ /^C[A-Z2-7]+$/ && length($0) == 56) id=$0
 
       # If the line contains a lab URL, extract after /contract/
-      if (match($0, /\/contract\/(C[A-Z2-7]{55})/, m)) id=m[1]
+      if (index($0, "/contract/") > 0) {
+        s=$0
+        sub(/.*\/contract\//, "", s)
+        sub(/[^A-Z2-7].*/, "", s)
+        if (s ~ /^C[A-Z2-7]+$/ && length(s) == 56) id=s
+      }
     }
     END { print id }
   '

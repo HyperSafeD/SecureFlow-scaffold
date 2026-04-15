@@ -5,7 +5,7 @@ import { CONTRACTS } from "@/lib/web3/config";
 import { contractService } from "@/lib/web3/contract-service";
 
 export function useAdminStatus() {
-  const { wallet, getContract } = useWeb3();
+  const { wallet } = useWeb3();
   const { getActiveDelegations, delegations } = useDelegation();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
@@ -35,22 +35,17 @@ export function useAdminStatus() {
         return;
       }
 
-      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW);
-      if (!contract) {
-        console.warn("Failed to get contract instance");
-        setIsAdmin(false);
-        setIsOwner(false);
-        setIsArbiter(false);
-        return;
+      // Get the contract owner from Soroban instance storage
+      let owner: string | null = null;
+      try {
+        owner = await contractService.getOwner();
+      } catch (e) {
+        // Fallback: allow a manual override while debugging deployments
+        owner = (import.meta.env.VITE_OWNER_ADDRESS || "").trim() || null;
       }
 
-      // Get the contract owner
-      const owner = await contract.call("owner");
-      console.log("Contract owner:", owner, typeof owner);
-      console.log("Wallet address:", wallet.address, typeof wallet.address);
-
       if (!owner) {
-        console.warn("Owner not found in contract");
+        console.warn("Owner not found in contract (or env override missing)");
         setIsAdmin(false);
         setIsOwner(false);
         setIsArbiter(false);

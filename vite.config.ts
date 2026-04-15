@@ -34,7 +34,9 @@ export default defineConfig(() => {
     define: {
       global: "window",
     },
-    envPrefix: "PUBLIC_",
+    // Expose env vars to the client. We use VITE_* throughout the app,
+    // and keep PUBLIC_* for any future compatibility.
+    envPrefix: ["VITE_", "PUBLIC_"],
     server: {
       proxy: {
         "/friendbot": {
