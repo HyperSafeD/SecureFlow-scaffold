@@ -47,6 +47,10 @@ export interface CreateEscrowParams {
   project_description: string;
 }
 
+export type EscrowContractHealth =
+  | { ok: true; jobCreationPaused: boolean }
+  | { ok: false; userMessage: string };
+
 export class ContractService {
   private contractId: string;
   private network: ReturnType<typeof getCurrentNetwork>;
@@ -1619,31 +1623,88 @@ export class ContractService {
   }
 
   async isJobCreationPaused(_address?: string): Promise<boolean> {
+    const health = await this.probeEscrowContractHealth();
+    if (!health.ok) {
+      console.error("Error checking pause status:", health.userMessage);
+      return false;
+    }
+    return health.jobCreationPaused;
+  }
+
+  /**
+   * Returns whether the configured escrow contract responds on the current RPC.
+   * Use this instead of swallowing errors in isJobCreationPaused when driving UX.
+   */
+  async probeEscrowContractHealth(): Promise<EscrowContractHealth> {
+    if (!this.contractId?.trim()) {
+      return {
+        ok: false,
+        userMessage:
+          "No escrow contract ID is configured. Set VITE_SECUREFLOW_CONTRACT_ID in .env to the Contract ID from deploy, then run initialize once and rebuild.",
+      };
+    }
+
+    const misconfiguredMessage =
+      "The Soroban escrow contract is not usable on this network (missing ledger entry, uninitialized storage, or wrong contract ID). " +
+      "Redeploy the WASM, invoke initialize(owner, fee_collector, platform_fee_bp) once, set VITE_SECUREFLOW_CONTRACT_ID to the new ID, and rebuild. " +
+      "Soroban testnet resets remove older deployments.";
+
     try {
-      // Use the generated client for view functions - it handles simulation correctly
       const assembledTx = await this.client.is_job_creation_paused({
         simulate: true,
       });
 
-      // For view functions, the result is in the assembledTx.result
       if (assembledTx.result !== undefined) {
-        return assembledTx.result as boolean;
+        return { ok: true, jobCreationPaused: assembledTx.result as boolean };
       }
 
-      // Fallback: try to get result from simulation
-      if (assembledTx.simulationData) {
-        const simData = assembledTx.simulationData;
+      const simData = assembledTx.simulationData as Record<string, unknown> | undefined;
+      if (simData) {
+        if (typeof simData.error === "string" && simData.error.length > 0) {
+          return {
+            ok: false,
+            userMessage: this.mapHealthRpcMessage(
+              simData.error,
+              misconfiguredMessage
+            ),
+          };
+        }
         if ("returnValue" in simData && simData.returnValue) {
-          return scValToNative(simData.returnValue as xdr.ScVal) as boolean;
+          const paused = scValToNative(simData.returnValue as xdr.ScVal) as boolean;
+          return { ok: true, jobCreationPaused: paused };
         }
       }
 
-      return false;
-    } catch (error) {
-      console.error("Error checking pause status:", error);
-      // Fallback to false if contract call fails
-      return false;
+      const serialized = JSON.stringify(assembledTx);
+      if (serialized.includes("MissingValue")) {
+        return { ok: false, userMessage: misconfiguredMessage };
+      }
+
+      return { ok: true, jobCreationPaused: false };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        userMessage: this.mapHealthRpcMessage(msg, misconfiguredMessage),
+      };
     }
+  }
+
+  private mapHealthRpcMessage(
+    raw: string,
+    misconfiguredMessage: string
+  ): string {
+    const m = raw.toLowerCase();
+    if (
+      m.includes("missingvalue") ||
+      m.includes("not found") ||
+      m.includes("non-existing value") ||
+      m.includes("not initialized") ||
+      m.includes("owner not found")
+    ) {
+      return misconfiguredMessage;
+    }
+    return `Cannot reach the escrow contract: ${raw}`;
   }
 
   async getOwner(): Promise<string> {

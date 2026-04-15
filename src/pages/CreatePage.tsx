@@ -12,6 +12,8 @@ import { ProjectDetailsStep } from "@/components/create/project-details-step";
 import { MilestonesStep } from "@/components/create/milestones-step";
 import { ReviewStep } from "@/components/create/review-step";
 import { useCreateEscrow } from "@/hooks/use-escrows";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 
 interface Milestone {
   description: string;
@@ -34,6 +36,9 @@ export default function CreateEscrowPage() {
   const [_useNativeToken, _setUseNativeToken] = useState(false);
   const [_isOpenJob, _setIsOpenJob] = useState(false);
   const [isContractPaused, setIsContractPaused] = useState(false);
+  const [contractConfigError, setContractConfigError] = useState<string | null>(
+    null
+  );
   const [isOnCorrectNetwork, setIsOnCorrectNetwork] = useState(true);
   const [errors, setErrors] = useState<{
     projectTitle?: string;
@@ -65,10 +70,19 @@ export default function CreateEscrowPage() {
   const checkContractPauseStatus = async () => {
     try {
       const { contractService } = await import("@/lib/web3/contract-service");
-      const paused = await contractService.isJobCreationPaused();
-      setIsContractPaused(paused);
+      const health = await contractService.probeEscrowContractHealth();
+      if (!health.ok) {
+        setContractConfigError(health.userMessage);
+        setIsContractPaused(true);
+        return;
+      }
+      setContractConfigError(null);
+      setIsContractPaused(health.jobCreationPaused);
     } catch (error) {
-      setIsContractPaused(false);
+      const msg =
+        error instanceof Error ? error.message : "Contract check failed.";
+      setContractConfigError(msg);
+      setIsContractPaused(true);
     }
   };
 
@@ -442,6 +456,13 @@ export default function CreateEscrowPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
+          {contractConfigError && (
+            <Alert variant="destructive" className="mb-8">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Escrow contract unavailable</AlertTitle>
+              <AlertDescription>{contractConfigError}</AlertDescription>
+            </Alert>
+          )}
           <h1 className="text-4xl md:text-5xl font-bold mb-3 text-center">
             Create New Escrow
           </h1>
@@ -568,7 +589,7 @@ export default function CreateEscrowPage() {
             <Button
               type="button"
               onClick={nextStep}
-              disabled={step === 3}
+              disabled={step === 3 || !!contractConfigError}
               className="flex items-center gap-2"
             >
               Next

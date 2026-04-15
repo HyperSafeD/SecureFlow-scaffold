@@ -17,15 +17,14 @@ export const STELLAR_NETWORKS = {
   },
 };
 
-// Contract IDs (will be set after deployment)
-// Fallback to the deployed contract ID if env variable is not set
-// Testnet contract ID (deployed on testnet) - Updated with rating and badge system
-const DEFAULT_CONTRACT_ID =
-  "CCHLR3D3MUM5PDRP6DQRREZK5QABLWGZP6PAIMQ4SEE64ZS2B6PNDRVC";
+// Contract ID: set VITE_SECUREFLOW_CONTRACT_ID after each deploy + initialize.
+// Soroban testnet resets remove old contracts; a baked-in ID will go stale.
+const DEFAULT_CONTRACT_ID = "";
 
 export const CONTRACTS = {
-  SECUREFLOW_ESCROW:
-    import.meta.env.VITE_SECUREFLOW_CONTRACT_ID || DEFAULT_CONTRACT_ID,
+  SECUREFLOW_ESCROW: (
+    import.meta.env.VITE_SECUREFLOW_CONTRACT_ID || DEFAULT_CONTRACT_ID
+  ).trim(),
 };
 
 // Get current network from environment

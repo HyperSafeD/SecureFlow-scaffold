@@ -24,6 +24,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 
 export default function JobsPage() {
   const { wallet, getContract } = useWeb3();
@@ -41,6 +43,9 @@ export default function JobsPage() {
   const [applying, setApplying] = useState(false);
   const [hasApplied, setHasApplied] = useState<Record<string, boolean>>({});
   const [isContractPaused, setIsContractPaused] = useState(false);
+  const [contractConfigError, setContractConfigError] = useState<string | null>(
+    null
+  );
   const [ongoingProjectsCount, setOngoingProjectsCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [totalEscrowsCount, setTotalEscrowsCount] = useState(0); // Actual count from blockchain
@@ -88,11 +93,20 @@ export default function JobsPage() {
 
   const checkContractPauseStatus = async () => {
     try {
-      const isPaused = await contractService.isJobCreationPaused();
-      setIsContractPaused(isPaused);
+      const health = await contractService.probeEscrowContractHealth();
+      if (!health.ok) {
+        setContractConfigError(health.userMessage);
+        setIsContractPaused(true);
+        return;
+      }
+      setContractConfigError(null);
+      setIsContractPaused(health.jobCreationPaused);
     } catch (error) {
       console.error("Error checking pause status:", error);
-      setIsContractPaused(false);
+      const msg =
+        error instanceof Error ? error.message : "Contract check failed.";
+      setContractConfigError(msg);
+      setIsContractPaused(true);
     }
   };
 
@@ -556,6 +570,13 @@ export default function JobsPage() {
           onRefresh={handleRefresh}
           refreshing={refreshing}
         />
+        {contractConfigError && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Escrow contract unavailable</AlertTitle>
+            <AlertDescription>{contractConfigError}</AlertDescription>
+          </Alert>
+        )}
         <JobsStats
           jobs={jobs}
           openJobsCount={totalEscrowsCount}

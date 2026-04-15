@@ -7,6 +7,11 @@ target/
 .config/
 .stellar/
 
+# stellar CLI identities / keys (defense in depth)
+**/identity/*.toml
+**/*secret*.toml
+.contract-id
+
 # test snapshot folders from sample contracts
 test_snapshots/
 
