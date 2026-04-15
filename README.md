@@ -35,7 +35,7 @@ SecureFlow is a blockchain-powered freelancer marketplace that revolutionizes ho
 
 ### Why SecureFlow?
 
-- **🔒 Trustless Escrow**: Funds are locked in smart contracts until work is approved
+- **🔒 Trustless Escrow**: Funds are locked in smart contracts until work is approved.
 - **⚡ Fast & Low-Cost**: Leverages Stellar's fast, low-fee network
 - **🌍 Global Access**: Works with native XLM and whitelisted tokens
 - **⚖️ Fair Disputes**: Multi-arbiter system ensures fair conflict resolution
