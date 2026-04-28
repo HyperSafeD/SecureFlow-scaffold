@@ -55,7 +55,6 @@ export function useEscrowActions() {
       });
       return true;
     } catch (error) {
-      console.error("Error creating escrow:", error);
       return false;
     } finally {
       setIsLoading(false);
@@ -76,7 +75,6 @@ export function useEscrowActions() {
       await startWork.mutateAsync(escrowId);
       return true;
     } catch (error) {
-      console.error("Error starting work:", error);
       return false;
     } finally {
       setIsLoading(false);
@@ -93,7 +91,6 @@ export function useEscrowActions() {
       await submitMilestone.mutateAsync(params);
       return true;
     } catch (error) {
-      console.error("Error submitting milestone:", error);
       return false;
     } finally {
       setIsLoading(false);
@@ -109,7 +106,6 @@ export function useEscrowActions() {
       await approveMilestone.mutateAsync(params);
       return true;
     } catch (error) {
-      console.error("Error approving milestone:", error);
       return false;
     } finally {
       setIsLoading(false);
@@ -122,7 +118,6 @@ export function useEscrowActions() {
       await refundEscrow.mutateAsync(escrowId);
       return true;
     } catch (error) {
-      console.error("Error refunding escrow:", error);
       return false;
     } finally {
       setIsLoading(false);
@@ -139,7 +134,6 @@ export function useEscrowActions() {
       await applyToJob.mutateAsync(params);
       return true;
     } catch (error) {
-      console.error("Error applying to job:", error);
       return false;
     } finally {
       setIsLoading(false);
@@ -155,7 +149,6 @@ export function useEscrowActions() {
       await acceptFreelancer.mutateAsync(params);
       return true;
     } catch (error) {
-      console.error("Error accepting freelancer:", error);
       return false;
     } finally {
       setIsLoading(false);
@@ -171,7 +164,6 @@ export function useEscrowActions() {
       await extendDeadline.mutateAsync(params);
       return true;
     } catch (error) {
-      console.error("Error extending deadline:", error);
       return false;
     } finally {
       setIsLoading(false);
@@ -184,7 +176,6 @@ export function useEscrowActions() {
       await emergencyRefund.mutateAsync(escrowId);
       return true;
     } catch (error) {
-      console.error("Error emergency refunding:", error);
       return false;
     } finally {
       setIsLoading(false);

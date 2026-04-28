@@ -22,11 +22,6 @@ export function JobCard({
   ongoingProjectsCount,
   onApply,
 }: JobCardProps) {
-  console.log(
-    `[JobCard] Rendering job ${job.id}, hasApplied prop:`,
-    hasApplied,
-    typeof hasApplied
-  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -112,18 +107,6 @@ export function JobCard({
                   </>
                 ) : (
                   "Apply Now"
-                );
-                console.log(
-                  `[JobCard] Button text for job ${job.id}:`,
-                  buttonText,
-                  "hasApplied:",
-                  hasApplied,
-                  "isContractPaused:",
-                  isContractPaused,
-                  "isJobCreator:",
-                  job.isJobCreator,
-                  "ongoingProjectsCount:",
-                  ongoingProjectsCount
                 );
                 return buttonText;
               })()}

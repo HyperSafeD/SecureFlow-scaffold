@@ -138,6 +138,34 @@ pub fn add_to_list_unique(env: &Env, key: DataKey, value: Address) {
     }
 }
 
+pub fn remove_from_list(env: &Env, key: DataKey, value: &Address) {
+    let list: Vec<Address> = env.storage().instance().get(&key).unwrap_or(Vec::new(env));
+    let mut new_list: Vec<Address> = Vec::new(env);
+    for item in list.iter() {
+        if &item != value {
+            new_list.push_back(item);
+        }
+    }
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+    env.storage().instance().set(&key, &new_list);
+}
+
+pub fn remove_arbiter(env: &Env, arbiter: Address) -> Result<(), Error> {
+    require_owner(env)?;
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+    // Remove the individual lookup key
+    env.storage()
+        .instance()
+        .remove(&DataKey::AuthorizedArbiter(arbiter.clone()));
+    // Remove from the list
+    remove_from_list(env, DataKey::AuthorizedArbiters, &arbiter);
+    Ok(())
+}
+
 /// Owner-only: withdraw only the "excess" balance above what is currently escrowed.
 /// This protects active escrows while allowing recovery of accidental transfers.
 pub fn withdraw_stuck_funds(

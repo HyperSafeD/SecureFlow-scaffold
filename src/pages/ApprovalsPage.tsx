@@ -11,7 +11,19 @@ import {
   createApplicationNotification,
 } from "@/contexts/notification-context";
 import type { Escrow, Application } from "@/lib/web3/types";
-import { Briefcase, MessageSquare } from "lucide-react";
+
+/** Pull the [Portfolio/Attachment: name](url) block out of a cover letter. */
+function parseCoverLetter(text: string): { body: string; attachment?: { name: string; url: string } } {
+  const re = /\[Portfolio\/Attachment:\s*([^\]]+)\]\((https?:\/\/[^)]+)\)/i;
+  const match = re.exec(text);
+  if (!match) return { body: text };
+  return {
+    body: text.replace(match[0], "").replace(/\n{3,}/g, "\n\n").trim(),
+    attachment: { name: match[1].trim(), url: match[2].trim() },
+  };
+}
+
+import { Briefcase, MessageSquare, Paperclip } from "lucide-react";
 import { ApprovalsHeader } from "@/components/approvals/approvals-header";
 import { ApprovalsStats } from "@/components/approvals/approvals-stats";
 import { JobCard } from "@/components/approvals/job-card";
@@ -83,10 +95,6 @@ export default function ApprovalsPage() {
         const latestLedger = await rpcServer.getLatestLedger();
         currentLedger = latestLedger.sequence;
       } catch (error) {
-        console.warn(
-          "Could not fetch current ledger, using approximate timestamp:",
-          error
-        );
         // Fallback: use current time as approximation
         const SECONDS_PER_LEDGER = 5;
         currentLedger = Math.floor(Date.now() / 1000 / SECONDS_PER_LEDGER);
@@ -98,9 +106,6 @@ export default function ApprovalsPage() {
 
       // Get next escrow ID from blockchain (not hardcoded)
       const nextEscrowId = await contractService.getNextEscrowId();
-      console.log(
-        `[ApprovalsPage] next_escrow_id from blockchain: ${nextEscrowId}`
-      );
 
       const myJobs: JobWithApplications[] = [];
 
@@ -108,11 +113,9 @@ export default function ApprovalsPage() {
       const maxEscrowsToCheck = Math.min(nextEscrowId - 1, 20);
       for (let i = 1; i <= maxEscrowsToCheck; i++) {
         try {
-          console.log(`[ApprovalsPage] Checking escrow ${i}...`);
           const escrow = await contractService.getEscrow(i);
 
           if (!escrow) {
-            console.log(`[ApprovalsPage] Escrow ${i} does not exist`);
             continue;
           }
 
@@ -123,9 +126,6 @@ export default function ApprovalsPage() {
             escrow.creator.toLowerCase().trim() ===
               wallet.address.toLowerCase().trim();
 
-          console.log(
-            `[ApprovalsPage] Escrow ${i} creator: ${escrow.creator}, isMyJob: ${isMyJob}`
-          );
 
           if (isMyJob) {
             // Check if it's an open job (beneficiary is zero address)
@@ -135,9 +135,6 @@ export default function ApprovalsPage() {
                 "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF" ||
               escrow.freelancer === "";
 
-            console.log(
-              `[ApprovalsPage] Escrow ${i} isOpenJob: ${isOpenJob}, freelancer: ${escrow.freelancer}`
-            );
 
             if (isOpenJob) {
               let applicationCount = 0;
@@ -145,14 +142,7 @@ export default function ApprovalsPage() {
 
               // Get applications from storage
               try {
-                console.log(
-                  `[ApprovalsPage] Fetching applications for job ${i}`
-                );
                 const apps = await contractService.getApplications(i);
-                console.log(
-                  `[ApprovalsPage] Got ${apps.length} applications for job ${i}:`,
-                  apps
-                );
                 applicationCount = apps.length;
 
                 // Convert to Application format
@@ -177,14 +167,7 @@ export default function ApprovalsPage() {
                   });
                 }
 
-                console.log(
-                  `Found ${applicationCount} applications for job ${i}`
-                );
               } catch (error) {
-                console.error(
-                  `Error getting applications for job ${i}:`,
-                  error
-                );
                 applicationCount = 0;
               }
 
@@ -247,19 +230,8 @@ export default function ApprovalsPage() {
   };
 
   const handleApproveFreelancer = async () => {
-    console.log("[handleApproveFreelancer] Called", {
-      selectedJobForApproval: selectedJobForApproval?.id,
-      selectedFreelancer: selectedFreelancer?.freelancerAddress,
-      walletConnected: wallet.isConnected,
-      walletAddress: wallet.address,
-    });
 
     if (!selectedJobForApproval || !selectedFreelancer || !wallet.isConnected) {
-      console.error("[handleApproveFreelancer] Missing required data:", {
-        selectedJobForApproval: !!selectedJobForApproval,
-        selectedFreelancer: !!selectedFreelancer,
-        walletConnected: wallet.isConnected,
-      });
       toast({
         title: "Error",
         description: "Missing required information. Please try again.",
@@ -269,7 +241,6 @@ export default function ApprovalsPage() {
     }
 
     if (!wallet.address) {
-      console.error("[handleApproveFreelancer] Wallet address is missing");
       toast({
         title: "Error",
         description: "Wallet address not found. Please reconnect your wallet.",
@@ -281,19 +252,10 @@ export default function ApprovalsPage() {
     setApproving(true);
 
     try {
-      console.log("[handleApproveFreelancer] Starting approval process...");
       // Use ContractService instead of contract.send - it handles address conversion and auth properly
       const { ContractService } = await import("@/lib/web3/contract-service");
       const contractService = new ContractService(CONTRACTS.SECUREFLOW_ESCROW);
 
-      console.log(
-        "[handleApproveFreelancer] Calling contractService.acceptFreelancer...",
-        {
-          escrow_id: Number(selectedJobForApproval.id),
-          freelancer: selectedFreelancer.freelancerAddress,
-          depositor: wallet.address,
-        }
-      );
 
       await contractService.acceptFreelancer({
         escrow_id: Number(selectedJobForApproval.id),
@@ -301,7 +263,6 @@ export default function ApprovalsPage() {
         depositor: wallet.address,
       });
 
-      console.log("[handleApproveFreelancer] Transaction successful!");
 
       toast({
         title: "Freelancer Approved",
@@ -345,7 +306,6 @@ export default function ApprovalsPage() {
       setLoading(true);
       setTimeout(() => setLoading(false), 100);
     } catch (error) {
-      console.error("[handleApproveFreelancer] Error:", error);
       const errorMessage =
         error instanceof Error ? error.message : String(error);
 
@@ -557,9 +517,25 @@ export default function ApprovalsPage() {
 
                         <div>
                           <p className="font-medium">Cover Letter:</p>
-                          <p className="text-sm text-muted-foreground">
-                            {application.coverLetter}
-                          </p>
+                          {(() => {
+                            const { body, attachment } = parseCoverLetter(application.coverLetter ?? "");
+                            return (
+                              <>
+                                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{body}</p>
+                                {attachment && (
+                                  <a
+                                    href={attachment.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="mt-2 inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                                  >
+                                    <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                                    {attachment.name}
+                                  </a>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
 
                         <div>

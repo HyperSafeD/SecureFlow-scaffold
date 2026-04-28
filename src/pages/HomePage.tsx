@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Link } from "react-router-dom";
-import { ArrowRight, Shield, CheckCircle2, TrendingUp } from "lucide-react";
+import { ArrowRight, Shield, CheckCircle2, TrendingUp, Users, Star, BadgeCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useWeb3 } from "@/contexts/web3-context";
 import { CONTRACTS } from "@/lib/web3/config";
@@ -35,7 +35,6 @@ export default function HomePage() {
 
       // Get next escrow ID from blockchain (not hardcoded)
       const nextEscrowId = await contractService.getNextEscrowId();
-      console.log(`[HomePage] next_escrow_id from blockchain: ${nextEscrowId}`);
 
       let activeEscrows = 0;
       let completedEscrows = 0;
@@ -46,7 +45,6 @@ export default function HomePage() {
       const maxEscrowsToCheck = Math.min(nextEscrowId - 1, 20);
       for (let i = 1; i <= maxEscrowsToCheck; i++) {
         try {
-          console.log(`[HomePage] Checking escrow ${i} for stats...`);
           const escrowData = await contractService.getEscrow(i);
 
           if (!escrowData) {
@@ -69,20 +67,11 @@ export default function HomePage() {
             completedEscrows++;
           }
         } catch (error) {
-          console.error(
-            `[HomePage] Error checking escrow ${i} for stats:`,
-            error
-          );
           // Skip escrows that don't exist
           continue;
         }
       }
 
-      console.log(`[HomePage] Stats calculated:`, {
-        activeEscrows,
-        completedEscrows,
-        totalVolume: totalVolume.toFixed(2),
-      });
 
       setStats({
         activeEscrows,
@@ -90,7 +79,6 @@ export default function HomePage() {
         completedEscrows,
       });
     } catch (error) {
-      console.error("[HomePage] Error fetching stats:", error);
       // Set empty stats if contract call fails
       setStats({
         activeEscrows: 0,
@@ -281,6 +269,93 @@ export default function HomePage() {
               </Card>
             </motion.div>
           </div>
+        </div>
+      </section>
+
+      {/* Hire a Freelancer Section */}
+      <section className="py-24 relative overflow-hidden">
+        <div className="absolute inset-0 gradient-mesh opacity-30" />
+        <div className="container relative mx-auto px-4 max-w-5xl">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            viewport={{ once: true }}
+          >
+            <Card className="glass border-accent/30 overflow-hidden">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
+                {/* Left: copy */}
+                <div className="p-10 md:p-12 flex flex-col justify-center gap-6">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 w-fit">
+                    <Users className="h-3.5 w-3.5 text-accent" />
+                    <span className="text-xs font-medium text-accent">
+                      Freelancer Marketplace
+                    </span>
+                  </div>
+
+                  <div>
+                    <h2 className="text-3xl md:text-4xl font-bold mb-3 text-balance leading-tight">
+                      Need to hire a
+                      <span className="bg-gradient-to-r from-accent to-primary bg-clip-text text-transparent">
+                        {" "}verified freelancer?
+                      </span>
+                    </h2>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Browse on-chain profiles with real ratings, completed
+                      projects, and badge levels — no fake portfolios, every
+                      stat is verified directly on the Stellar blockchain.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Link to="/freelancers">
+                      <Button size="lg" variant="outline" className="gap-2 border-accent/40 hover:border-accent hover:bg-accent/10 w-full sm:w-auto">
+                        Browse Freelancers
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+
+                {/* Right: visual perks */}
+                <div className="bg-accent/5 border-l border-accent/20 p-10 md:p-12 flex flex-col justify-center gap-5">
+                  {[
+                    {
+                      icon: BadgeCheck,
+                      color: "text-green-500",
+                      bg: "bg-green-500/10",
+                      title: "On-chain verified badges",
+                      desc: "Beginner → Expert, earned through real completed work",
+                    },
+                    {
+                      icon: Star,
+                      color: "text-yellow-500",
+                      bg: "bg-yellow-500/10",
+                      title: "Tamper-proof ratings",
+                      desc: "Ratings written to the blockchain — impossible to fake",
+                    },
+                    {
+                      icon: Shield,
+                      color: "text-primary",
+                      bg: "bg-primary/10",
+                      title: "Escrow-protected hiring",
+                      desc: "One click to create a protected escrow directly with any freelancer",
+                    },
+                  ].map(({ icon: Icon, color, bg, title, desc }) => (
+                    <div key={title} className="flex items-start gap-4">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${bg}`}>
+                        <Icon className={`h-4.5 w-4.5 ${color}`} />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm mb-0.5">{title}</p>
+                        <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </motion.div>
         </div>
       </section>
 

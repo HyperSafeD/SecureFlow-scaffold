@@ -160,15 +160,6 @@ export default function DashboardPage() {
     // Use ref to get the most current escrows, not the stale closure value
     const previousEscrows = escrowsRef.current;
     const previousEscrowsCount = previousEscrows.length;
-    console.log(
-      `[DashboardPage] fetchUserEscrows called. Previous escrows: ${previousEscrowsCount}, isManualRefresh: ${isManualRefresh}`,
-      {
-        escrows: previousEscrows.map((e) => ({
-          id: e.id,
-          title: e.projectDescription,
-        })),
-      }
-    );
 
     // Don't set loading to true if we're refreshing after an operation - preserve UI
     if (isManualRefresh) {
@@ -193,9 +184,6 @@ export default function DashboardPage() {
 
       // Get next escrow ID from blockchain (not hardcoded)
       const nextEscrowId = await contractService.getNextEscrowId();
-      console.log(
-        `[DashboardPage] next_escrow_id from blockchain: ${nextEscrowId}`
-      );
 
       const userEscrows: Escrow[] = [];
 
@@ -209,10 +197,6 @@ export default function DashboardPage() {
         const latestLedger = await rpcServer.getLatestLedger();
         currentLedger = latestLedger.sequence;
       } catch (error) {
-        console.warn(
-          "Could not fetch current ledger, using approximate timestamp:",
-          error
-        );
         // Fallback: use current time as approximation
         const SECONDS_PER_LEDGER = 5;
         currentLedger = Math.floor(Date.now() / 1000 / SECONDS_PER_LEDGER);
@@ -223,11 +207,9 @@ export default function DashboardPage() {
       const maxEscrowsToCheck = Math.min(nextEscrowId - 1, 20);
       for (let i = 1; i <= maxEscrowsToCheck; i++) {
         try {
-          console.log(`[DashboardPage] Checking escrow ${i}...`);
           const escrowData = await contractService.getEscrow(i);
 
           if (!escrowData) {
-            console.log(`[DashboardPage] Escrow ${i} does not exist`);
             continue;
           }
 
@@ -241,9 +223,6 @@ export default function DashboardPage() {
             escrowData.freelancer.toLowerCase().trim() ===
               wallet.address.toLowerCase().trim();
 
-          console.log(
-            `[DashboardPage] Escrow ${i} - isPayer: ${isPayer}, isBeneficiary: ${isBeneficiary}`
-          );
 
           // Show escrows for both clients and freelancers, but with different functionality
           if (isPayer || isBeneficiary) {
@@ -264,10 +243,6 @@ export default function DashboardPage() {
             try {
               milestonesData = await contractService.getMilestones(i);
             } catch (milestoneError) {
-              console.error(
-                `[DashboardPage] Error fetching milestones for escrow ${i}:`,
-                milestoneError
-              );
               // Continue with empty milestones array if fetch fails
               milestonesData = [];
             }
@@ -353,17 +328,6 @@ export default function DashboardPage() {
                   };
                   const status = statusMap[statusNumber] || "pending";
 
-                  console.log(
-                    `[DashboardPage] Milestone ${i}-${milestoneIndex} status: ${rawStatus} (${typeof rawStatus}) -> ${statusNumber} -> ${status}`,
-                    {
-                      milestone: m,
-                      rawStatus,
-                      statusNumber,
-                      status,
-                      submitted_at: m.submitted_at,
-                      approved_at: m.approved_at,
-                    }
-                  );
 
                   // Convert ledger sequences to timestamps
                   const SECONDS_PER_LEDGER = 5;
@@ -408,11 +372,6 @@ export default function DashboardPage() {
                       m.resolution_amount?.toString() || undefined,
                   };
                 } catch (error) {
-                  console.error(
-                    `[DashboardPage] Error processing milestone ${i}-${milestoneIndex}:`,
-                    error,
-                    m
-                  );
                   // Return a safe default milestone object if parsing fails
                   return {
                     description: m.description || "",
@@ -427,23 +386,31 @@ export default function DashboardPage() {
               })
               .filter((m) => m !== null && m !== undefined);
 
+            // Compute approximate deadline timestamp (ms)
+            const deadlineAt =
+              deadlineLedger > 0
+                ? Date.now() +
+                  (deadlineLedger - currentLedger) * SECONDS_PER_LEDGER * 1000
+                : undefined;
+
             // Convert contract data to our Escrow type
             const escrow: Escrow = {
               id: i.toString(),
               payer: escrowData.creator || "",
               beneficiary: escrowData.freelancer || "",
-              isClient: isPayer ? true : undefined, // Track if current user is the client (payer)
-              isFreelancer: isBeneficiary ? true : undefined, // Track if current user is the freelancer (beneficiary)
+              isClient: isPayer ? true : undefined,
+              isFreelancer: isBeneficiary ? true : undefined,
               token: escrowData.token || "native",
               totalAmount: escrowData.amount || "0",
-              releasedAmount: escrowData.paid_amount || "0", // Get paid_amount from escrow
+              releasedAmount: escrowData.paid_amount || "0",
               status: getStatusFromNumber(escrowData.status || 0) as
                 | "pending"
                 | "active"
                 | "completed"
                 | "disputed",
-              createdAt: approxCreatedAt, // Approximate timestamp from ledger sequence
-              duration: durationInSeconds, // Duration in seconds
+              createdAt: approxCreatedAt,
+              duration: durationInSeconds,
+              deadlineAt,
               milestones,
               projectDescription:
                 escrowData.project_title ||
@@ -452,31 +419,16 @@ export default function DashboardPage() {
             };
 
             userEscrows.push(escrow);
-            console.log(`[DashboardPage] Added escrow ${i} to user escrows`);
           }
         } catch (error) {
-          console.error(`[DashboardPage] Error checking escrow ${i}:`, error);
           // Skip escrows that don't exist or user doesn't have access to
           continue;
         }
       }
 
-      console.log(
-        `[DashboardPage] Found ${userEscrows.length} escrows for user (had ${previousEscrowsCount} before)`
-      );
 
       // If we had escrows before but now have 0, preserve existing escrows and log warning
       if (previousEscrowsCount > 0 && userEscrows.length === 0) {
-        console.warn(
-          "[DashboardPage] WARNING: Had escrows before but fetch returned 0. Preserving existing escrows.",
-          {
-            previousEscrows: previousEscrows.map((e) => ({
-              id: e.id,
-              title: e.projectDescription,
-            })),
-            isManualRefresh,
-          }
-        );
         // Don't update escrows - keep what we had
         // This prevents the dashboard from going empty after operations
         return;
@@ -484,12 +436,8 @@ export default function DashboardPage() {
 
       // Always update escrows if fetch was successful
       // The error handling in catch block will preserve escrows if fetch fails
-      console.log(
-        `[DashboardPage] Setting escrows to ${userEscrows.length} items`
-      );
       setEscrows(userEscrows);
     } catch (error) {
-      console.error("[DashboardPage] Error fetching escrows:", error);
       // Don't clear existing escrows on error - preserve what we have
       // Only show toast if we don't have any escrows yet
       if (escrows.length === 0) {
@@ -501,9 +449,6 @@ export default function DashboardPage() {
       } else {
         // If we have existing escrows, just log the error but don't show toast
         // This prevents clearing the UI when a refresh fails
-        console.warn(
-          "[DashboardPage] Failed to refresh escrows, keeping existing data"
-        );
       }
     } finally {
       setLoading(false);
@@ -669,10 +614,6 @@ export default function DashboardPage() {
       try {
         await fetchUserEscrows(true);
       } catch (refreshError: any) {
-        console.error(
-          "[DashboardPage] Error refreshing escrows after dispute:",
-          refreshError
-        );
         toast({
           title: "Milestone Disputed",
           description:
@@ -682,7 +623,6 @@ export default function DashboardPage() {
         // Don't throw - the dispute was successful, just the refresh failed
       }
     } catch (error: any) {
-      console.error("[DashboardPage] Error disputing milestone:", error);
       toast({
         title: "Dispute Failed",
         description: error.message || "Failed to dispute milestone",
@@ -764,10 +704,6 @@ export default function DashboardPage() {
       try {
         await fetchUserEscrows(true);
       } catch (refreshError: any) {
-        console.error(
-          "[DashboardPage] Error refreshing escrows after opening dispute:",
-          refreshError
-        );
         toast({
           title: "Dispute Opened",
           description:
@@ -777,7 +713,6 @@ export default function DashboardPage() {
         // Don't throw - the dispute was successful, just the refresh failed
       }
     } catch (error: any) {
-      console.error("[DashboardPage] Error opening dispute:", error);
       toast({
         title: "Dispute Failed",
         description: "Could not open dispute. Please try again.",
@@ -860,10 +795,6 @@ export default function DashboardPage() {
       try {
         await fetchUserEscrows(true);
       } catch (refreshError: any) {
-        console.error(
-          "[DashboardPage] Error refreshing escrows after approval:",
-          refreshError
-        );
         toast({
           title: "Milestone Approved",
           description:
@@ -883,6 +814,85 @@ export default function DashboardPage() {
       });
     } finally {
       setSubmittingMilestone(null);
+    }
+  };
+
+  const raiseOverdueDispute = async (escrowId: string, reason: string) => {
+    try {
+      const { ContractService } = await import("@/lib/web3/contract-service");
+      const contractService = new ContractService(CONTRACTS.SECUREFLOW_ESCROW);
+      toast({
+        title: "Raising overdue dispute…",
+        description: "Please confirm the transaction in your wallet",
+      });
+      await contractService.raiseOverdueDispute({
+        escrow_id: Number(escrowId),
+        requester: wallet.address || "",
+        reason,
+      });
+      toast({
+        title: "Dispute submitted",
+        description: "Arbiters have been notified and will review your case",
+      });
+
+      // Notify all authorized arbiters via the backend
+      const escrow = escrows.find((e) => e.id === escrowId);
+      try {
+        const authorizedArbiters = await contractService.getAuthorizedArbiters();
+        for (const arbAddr of authorizedArbiters) {
+          addNotification(
+            {
+              type: "dispute",
+              title: "Overdue Dispute Raised",
+              message: `Project "${escrow?.projectDescription?.slice(0, 60) || `#${escrowId}`}" is overdue and needs arbitration`,
+              actionUrl: `/admin?escrow=${escrowId}`,
+              data: {
+                escrowId,
+                requester: wallet.address,
+                reason,
+              },
+            },
+            [arbAddr],
+          );
+        }
+      } catch {
+        /* arbiter fetch failed — non-critical */
+      }
+
+      await fetchUserEscrows(true);
+    } catch (error: any) {
+      toast({
+        title: "Failed to raise dispute",
+        description: error.message || "Transaction failed",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const extendDeadline = async (escrowId: string, extraDays: number) => {
+    try {
+      const { ContractService } = await import("@/lib/web3/contract-service");
+      const contractService = new ContractService(CONTRACTS.SECUREFLOW_ESCROW);
+      toast({
+        title: "Extending deadline…",
+        description: "Please confirm the transaction in your wallet",
+      });
+      await contractService.extendDeadline({
+        escrow_id: Number(escrowId),
+        extra_seconds: extraDays * 24 * 3600,
+        depositor: wallet.address || "",
+      });
+      toast({
+        title: "Deadline extended",
+        description: `Added ${extraDays} day${extraDays > 1 ? "s" : ""} to the project deadline`,
+      });
+      await fetchUserEscrows(true);
+    } catch (error: any) {
+      toast({
+        title: "Failed to extend deadline",
+        description: error.message || "Transaction failed",
+        variant: "destructive",
+      });
     }
   };
 
@@ -935,10 +945,6 @@ export default function DashboardPage() {
       try {
         await fetchUserEscrows(true);
       } catch (refreshError: any) {
-        console.error(
-          "[DashboardPage] Error refreshing escrows after rejection:",
-          refreshError
-        );
         toast({
           title: "Milestone Rejected",
           description:
@@ -948,7 +954,6 @@ export default function DashboardPage() {
         // Don't throw - the rejection was successful, just the refresh failed
       }
     } catch (error: any) {
-      console.error("[DashboardPage] Error rejecting milestone:", error);
       toast({
         title: "Rejection Failed",
         description: error.message || "Failed to reject milestone",
@@ -1169,6 +1174,8 @@ export default function DashboardPage() {
                   onDispute={openDispute}
                   calculateDaysLeft={calculateDaysLeft}
                   getDaysLeftMessage={getDaysLeftMessage}
+                  onRaiseOverdueDispute={raiseOverdueDispute}
+                  onExtendDeadline={extendDeadline}
                 />
               ))}
           </div>

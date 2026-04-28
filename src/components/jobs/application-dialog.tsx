@@ -12,15 +12,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { Escrow } from "@/lib/web3/types";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Paperclip, X, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { isApiConfigured, postCoverLetterDraft } from "@/lib/api";
+import {
+  isApiConfigured,
+  postCoverLetterDraft,
+  uploadMilestoneFile,
+  type UploadedFile,
+} from "@/lib/api";
 
 interface ApplicationDialogProps {
   job: Escrow | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onApply: (job: Escrow, coverLetter: string, proposedTimeline: string) => void;
+  onApply: (
+    job: Escrow,
+    coverLetter: string,
+    proposedTimeline: string,
+    attachmentUrl?: string,
+  ) => void;
   applying: boolean;
 }
 
@@ -35,12 +45,17 @@ export function ApplicationDialog({
   const [coverLetter, setCoverLetter] = useState("");
   const [proposedTimeline, setProposedTimeline] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   // Keep user input until the dialog actually closes (e.g. after a successful tx).
   useEffect(() => {
     if (!open) {
       setCoverLetter("");
       setProposedTimeline("");
+      setSelectedFile(null);
+      setUploadedFile(null);
     }
   }, [open]);
 
@@ -81,10 +96,38 @@ export function ApplicationDialog({
     }
   };
 
-  const handleSubmit = () => {
-    if (job && coverLetter.trim() && proposedTimeline.trim()) {
-      onApply(job, coverLetter, proposedTimeline);
+  const handleSubmit = async () => {
+    if (!job || !coverLetter.trim() || !proposedTimeline.trim()) return;
+
+    let fileUrl: string | undefined = uploadedFile?.url;
+
+    // Upload file if one was selected but not yet uploaded
+    if (selectedFile && !uploadedFile && isApiConfigured()) {
+      setUploading(true);
+      try {
+        toast({ title: "Uploading attachment…", description: selectedFile.name });
+        const result = await uploadMilestoneFile(selectedFile, job.id, 0);
+        setUploadedFile(result);
+        fileUrl = result.url;
+      } catch (e) {
+        toast({
+          title: "Upload failed",
+          description: e instanceof Error ? e.message : "Could not upload file",
+          variant: "destructive",
+        });
+        setUploading(false);
+        return;
+      } finally {
+        setUploading(false);
+      }
     }
+
+    // Append attachment link to cover letter if uploaded
+    const finalLetter = fileUrl
+      ? `${coverLetter.trim()}\n\n[Portfolio/Attachment: ${uploadedFile?.filename ?? selectedFile?.name ?? "file"}](${fileUrl})`
+      : coverLetter;
+
+    onApply(job, finalLetter, proposedTimeline, fileUrl);
   };
 
   return (
@@ -137,6 +180,66 @@ export function ApplicationDialog({
               required
             />
           </div>
+
+          {isApiConfigured() && (
+            <div>
+              <Label className="mb-1.5 block">
+                Portfolio / Attachment{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional · PDF, images, docs · max 10 MB)
+                </span>
+              </Label>
+              {uploadedFile ? (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 text-sm">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                  <span className="truncate text-green-700 dark:text-green-300 flex-1">
+                    {uploadedFile.filename}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-gray-400 hover:text-red-500"
+                    onClick={() => {
+                      setUploadedFile(null);
+                      setSelectedFile(null);
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : selectedFile ? (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 text-sm">
+                  <Paperclip className="h-4 w-4 text-blue-500 shrink-0" />
+                  <span className="truncate text-blue-700 dark:text-blue-300 flex-1">
+                    {selectedFile.name}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-gray-400 hover:text-red-500"
+                    onClick={() => setSelectedFile(null)}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 px-3 py-2.5 rounded-md border-2 border-dashed border-muted-foreground/20 cursor-pointer hover:border-primary/40 transition-colors text-sm text-muted-foreground">
+                  <input
+                    type="file"
+                    className="sr-only"
+                    accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.zip,.doc,.docx"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) {
+                        setSelectedFile(f);
+                        setUploadedFile(null);
+                      }
+                    }}
+                  />
+                  <Paperclip className="h-4 w-4 shrink-0" />
+                  Click to attach a portfolio or document
+                </label>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -144,12 +247,19 @@ export function ApplicationDialog({
             Cancel
           </Button>
           <Button
-            onClick={handleSubmit}
+            onClick={() => void handleSubmit()}
             disabled={
-              applying || !coverLetter.trim() || !proposedTimeline.trim()
+              applying ||
+              uploading ||
+              !coverLetter.trim() ||
+              !proposedTimeline.trim()
             }
           >
-            {applying ? "Applying..." : "Submit Application"}
+            {uploading
+              ? "Uploading…"
+              : applying
+              ? "Applying..."
+              : "Submit Application"}
           </Button>
         </DialogFooter>
       </DialogContent>

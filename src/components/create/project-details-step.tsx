@@ -22,7 +22,6 @@ const USDC_TOKEN_CONTRACT =
   (import.meta.env.VITE_USDC_TOKEN_CONTRACT as string | undefined)?.trim() ??
   "";
 
-// Whitelisted tokens (production: USDC only for now)
 export const WHITELISTED_TOKENS: WhitelistedToken[] = [
   { symbol: "USDC", address: USDC_TOKEN_CONTRACT },
 ].filter((t) => /^C[A-Z2-7]{55}$/.test(t.address));
@@ -294,12 +293,8 @@ export function ProjectDetailsStep({
                   </Select>
                 </div>
               </div>
-              {errors?.tokenAddress ? (
+              {errors?.tokenAddress && (
                 <p className="text-red-500 text-sm">{errors.tokenAddress}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  USDC only for now. Set `VITE_USDC_TOKEN_CONTRACT` in `.env`.
-                </p>
               )}
             </div>
           )}

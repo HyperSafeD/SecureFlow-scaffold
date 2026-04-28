@@ -91,7 +91,6 @@ export const signAuthEntries = async (
     return signedAuthEntries;
   } catch (error) {
     // Don't fallback - throw error if signing fails
-    console.error("Auth entry signing failed:", error);
     throw new Error(
       `Failed to sign auth entries: ${error instanceof Error ? error.message : String(error)}`
     );

@@ -8,6 +8,7 @@ import {
 } from "react";
 import { getCurrentNetwork } from "@/lib/web3/stellar-config";
 import type { WalletState } from "@/lib/web3/types";
+import useWalletStore from "@/store/wallet.store";
 import { useToast } from "@/hooks/use-toast";
 import {
   Contract,
@@ -53,12 +54,25 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [isOwner, setIsOwner] = useState(false);
   const network = getCurrentNetwork();
 
+  // Keep Zustand wallet store in sync with context state so contract-service
+  // methods that call useWalletStore.getState().address always get a valid address.
+  useEffect(() => {
+    const { connectWalletStore, disconnectWalletStore } = useWalletStore.getState();
+    if (walletState.address && walletState.isConnected) {
+      connectWalletStore(
+        walletState.address,
+        (network.name as "testnet" | "mainnet" | "local") ?? "testnet",
+        "",
+        walletState.address,
+      );
+    } else {
+      disconnectWalletStore();
+    }
+  }, [walletState.address, walletState.isConnected, network.name]);
+
   // Lazy initialization of RPC server to avoid undefined errors
   const getRpcServer = useMemo(() => {
     if (!rpc || !rpc.Server) {
-      console.error(
-        "rpc.Server is not available. Please check @stellar/stellar-sdk installation."
-      );
       return null;
     }
     return () => new rpc.Server(network.rpcUrl);
@@ -148,7 +162,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               // If nativeBalance is null, keep existing balance (don't reset to 0)
             } catch (error: any) {
               // Balance fetch failed, but keep connection state and existing balance
-              console.error("Error fetching balance:", error);
               // Don't reset balance to 0 if fetch fails - keep existing balance
             }
           }
@@ -196,7 +209,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
               await checkOwnerStatus(publicKey);
             } catch (error: any) {
-              console.error("Error fetching balance:", error);
               // If account doesn't exist yet, still set connected
               // Keep existing balance if available, don't reset to 0
               setWalletState((prev) => ({
@@ -210,12 +222,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
           }
         } catch (error) {
           // Wallet not connected
-          console.log("Wallet not connected");
         }
       }
     } catch (error) {
       // Wallet not available or not connected
-      console.log("Wallet not connected");
     }
   };
 
@@ -297,7 +307,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             )}...${publicKey.slice(-4)}`,
           });
         } catch (error: any) {
-          console.error("Error fetching balance:", error);
           // Account might not exist yet
           // Keep existing balance if available, don't reset to 0
           setWalletState((prev) => ({
@@ -362,10 +371,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
   const getContract = (contractId: string) => {
     if (!contractId || contractId === "") {
-      console.error(
-        "Contract ID is required. Please set VITE_SECUREFLOW_CONTRACT_ID in your .env file"
-      );
-      console.error("Current contract ID:", contractId);
       return null;
     }
 
@@ -422,10 +427,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               // For now, return 1 as default (no escrows created)
               return 1;
             } catch (error) {
-              console.warn(
-                "Error getting next_escrow_id, returning default:",
-                error
-              );
               return 1;
             }
           }
@@ -456,10 +457,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
               // Check if simulation failed
               if ("errorResult" in result && result.errorResult) {
-                console.warn(
-                  "Error checking pause status:",
-                  result.errorResult
-                );
                 return false; // Default to not paused
               }
 
@@ -483,7 +480,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
               return false; // Default to not paused
             } catch (error) {
-              console.warn("Error checking pause status:", error);
               return false; // Default to not paused
             }
           }
@@ -495,9 +491,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             return 1; // Default: no escrows created yet
           }
 
-          console.warn(
-            `Method ${method} not found in generated client, using fallback`
-          );
 
           try {
             const contract = new Contract(contractId);
@@ -565,11 +558,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             if (method === "next_escrow_id") {
               return 1;
             }
-            console.error(`Error in fallback for ${method}:`, fallbackError);
             throw fallbackError;
           }
         } catch (error) {
-          console.error(`Error calling ${method}:`, error);
           throw error;
         }
       },
@@ -577,24 +568,16 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       // Legacy send interface for backward compatibility
       async send(method: string, ...args: any[]) {
         try {
-          console.log(`send() called with method: ${method}`, {
-            isConnected: walletState.isConnected,
-            address: walletState.address,
-            args,
-          });
 
           if (!walletState.isConnected || !walletState.address) {
             throw new Error("Wallet not connected");
           }
 
-          console.log(`Sending transaction: ${method}`, { args });
 
           // Use the generated client's methods for sending transactions
           let assembledTx: any;
 
           if (method === "create_escrow" && args[0]) {
-            console.log("Creating escrow with args:", args[0]);
-            console.log("Calling client.create_escrow()...");
             try {
               // Convert null to undefined for Option types
               // The generated client expects Option<string> which uses undefined for None
@@ -603,17 +586,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                 beneficiary: args[0].beneficiary ?? undefined,
                 token: args[0].token ?? undefined,
               };
-              console.log(
-                "Converted args for create_escrow (null -> undefined):",
-                createArgs
-              );
               assembledTx = await client.create_escrow(createArgs);
-              console.log(
-                "client.create_escrow() succeeded, assembledTx:",
-                assembledTx
-              );
             } catch (createError: any) {
-              console.error("Error in client.create_escrow():", createError);
               throw createError;
             }
           } else if (method === "start_work" && args[0]) {
@@ -631,15 +605,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               throw new Error("Freelancer address is required");
             }
 
-            console.log(
-              "Building apply_to_job transaction manually with args:",
-              {
-                escrow_id: args[0].escrow_id,
-                cover_letter: args[0].cover_letter,
-                proposed_timeline: args[0].proposed_timeline,
-                freelancer: freelancerAddress,
-              }
-            );
 
             const contract = new Contract(contractId);
             const server = createRpcServer();
@@ -703,7 +668,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
             // Handle auth entries if needed
             if (authEntries.length > 0) {
-              console.log("Auth entries found, signing auth entries...");
               const { signAuthEntry } = await import("@stellar/freighter-api");
 
               const signedAuthEntries = await Promise.all(
@@ -793,7 +757,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             // Handle set_job_creation_paused(bool) - args[0] is the boolean value
             const paused =
               args[0] === true || args[0] === "true" || args[0] === 1;
-            console.log(`Setting job creation paused to: ${paused}`);
 
             const contract = new Contract(contractId);
             const server = createRpcServer();
@@ -813,9 +776,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               .build();
 
             // Simulate to check for errors and get auth entries
-            console.log("Simulating set_job_creation_paused transaction...");
             const simulation = await server.simulateTransaction(tx);
-            console.log("Simulation result:", simulation);
             // Check for auth entries in the simulation result
             const authEntries =
               "auth" in simulation &&
@@ -823,12 +784,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               Array.isArray(simulation.auth)
                 ? simulation.auth
                 : [];
-            console.log("Simulation auth entries:", authEntries);
-            console.log("Simulation auth count:", authEntries.length || 0);
 
             // Check if simulation failed
             if ("errorResult" in simulation && simulation.errorResult) {
-              console.error("Simulation error:", simulation.errorResult);
               const errorValue =
                 (simulation.errorResult as any).value?.() ||
                 simulation.errorResult;
@@ -836,25 +794,17 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                 `Transaction simulation failed: ${errorValue.toString()}`
               );
             }
-            console.log("Simulation successful, preparing transaction...");
 
             // Prepare transaction (includes auth entries if needed)
             const prepared = await server.prepareTransaction(tx);
 
             // Check if simulation returned auth entries that need to be signed
             if (authEntries && authEntries.length > 0) {
-              console.log("Auth entries found, signing auth entries first...");
-              console.log("Auth entries count:", authEntries.length);
 
               // Sign auth entries first, then the transaction
               const { signAuthEntry } = await import("@stellar/freighter-api");
 
               // Sign each auth entry individually
-              console.log("Signing auth entries with:", {
-                authEntriesCount: authEntries.length,
-                networkPassphrase: network.networkPassphrase,
-                address: walletState.address,
-              });
 
               if (!walletState.address) {
                 throw new Error(
@@ -877,16 +827,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                 })
               );
 
-              console.log("Auth entries signed, result:", signedAuthEntries);
 
               if (!signedAuthEntries || signedAuthEntries.length === 0) {
                 throw new Error("Failed to sign auth entries");
               }
 
-              console.log(
-                "Auth entries signed successfully, count:",
-                signedAuthEntries.length
-              );
 
               // Rebuild the transaction with signed auth entries
               const txXdr = prepared.toXDR();
@@ -902,10 +847,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                 xdr.SorobanAuthorizationEntry.fromXDR(signed, "base64")
               );
 
-              console.log(
-                "Parsed signed auth entries:",
-                parsedSignedAuth.length
-              );
 
               // Rebuild the transaction with signed auth entries
               // Use the original transaction structure but inject signed auth entries
@@ -946,9 +887,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                   const newPrepared = await server.prepareTransaction(newTx);
 
                   // Sign the rebuilt transaction directly with signed auth entries
-                  console.log(
-                    "Signing transaction with signed auth entries..."
-                  );
                   const { signTransaction: signTxFromFreighter } = await import(
                     "@stellar/freighter-api"
                   );
@@ -959,7 +897,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                       address: walletState.address,
                     }
                   );
-                  console.log("Sign result (with auth):", signResult);
 
                   if (!signResult || !signResult.signedTxXdr) {
                     throw new Error(
@@ -977,7 +914,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                   const sendResponse =
                     await server.sendTransaction(signedTransaction);
 
-                  console.log("Transaction sent successfully:", sendResponse);
 
                   // Check for errors in the response
                   if (
@@ -1010,21 +946,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                         errorMessage = `Transaction failed: ${JSON.stringify(errorResult)}`;
                       }
                     }
-                    console.error("Transaction error:", {
-                      status: sendResponse.status,
-                      errorResult: errorResult,
-                      fullResponse: sendResponse,
-                      errorMessage,
-                    });
                     throw new Error(errorMessage);
                   }
 
                   // Wait for transaction confirmation if status is PENDING
                   if (sendResponse.status === "PENDING" && sendResponse.hash) {
-                    console.log(
-                      "Transaction pending, waiting for confirmation..."
-                    );
-                    console.log("Transaction hash:", sendResponse.hash);
 
                     // Poll for transaction status
                     let attempts = 0;
@@ -1045,16 +971,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                           "status" in txResponse
                             ? txResponse
                             : (txResponse as any).transaction || txResponse;
-                        console.log(
-                          `Transaction status check ${attempts + 1}:`,
-                          (txStatus as any).status || "unknown"
-                        );
                         attempts++;
                       } catch (error) {
-                        console.warn(
-                          "Error checking transaction status:",
-                          error
-                        );
                         attempts++;
                       }
                     }
@@ -1103,19 +1021,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                           errorMessage = `Transaction failed: ${JSON.stringify(errorResult)}`;
                         }
                       }
-                      console.error("Transaction failed after confirmation:", {
-                        status: txStatus.status,
-                        errorResult: txStatus.errorResult,
-                        fullResponse: txStatus,
-                        errorMessage,
-                      });
                       throw new Error(errorMessage);
                     }
 
-                    console.log(
-                      "Transaction confirmed successfully:",
-                      txStatus
-                    );
                     return txStatus;
                   }
 
@@ -1129,16 +1037,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               }
             } else {
               // No auth entries, just use the prepared transaction
-              console.log("No auth entries, using prepared transaction");
               assembledTx = {
                 toXDR: () => prepared.toXDR(),
               } as any;
             }
           } else if (method === "pause_job_creation") {
             // Legacy method - use set_job_creation_paused(true) logic
-            console.log(
-              "pause_job_creation called, using set_job_creation_paused(true)"
-            );
             const contract = new Contract(contractId);
             const server = createRpcServer();
             const sourceAccount = await server.getAccount(walletState.address!);
@@ -1168,9 +1072,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             } as any;
           } else if (method === "unpause_job_creation") {
             // Legacy method - use set_job_creation_paused(false) logic
-            console.log(
-              "unpause_job_creation called, using set_job_creation_paused(false)"
-            );
             const contract = new Contract(contractId);
             const server = createRpcServer();
             const sourceAccount = await server.getAccount(walletState.address!);
@@ -1204,25 +1105,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             );
           }
 
-          console.log("Assembled transaction:", assembledTx);
 
           // Sign and send manually (like create_escrow)
-          console.log("Signing and sending transaction manually...");
-          console.log("Wallet state:", {
-            address: walletState.address,
-            network: network.networkPassphrase,
-          });
 
           try {
             // Use signTransaction from WalletProvider if available, otherwise fallback to wallet instance
             const signTx = walletSignTransaction || wallet.signTransaction;
-            console.log("About to sign transaction...", {
-              hasWalletSignTransaction: !!walletSignTransaction,
-              hasWalletSignTransactionMethod: !!wallet.signTransaction,
-              signTxType: typeof signTx,
-              address: walletState.address,
-              networkPassphrase: network.networkPassphrase,
-            });
 
             if (!signTx) {
               throw new Error("signTransaction method is not available");
@@ -1234,20 +1122,13 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
             // Get the transaction XDR
             const xdr = assembledTx.toXDR();
-            console.log(
-              "Transaction XDR created, requesting wallet signature..."
-            );
 
             // Sign the transaction - this will trigger the wallet popup
-            console.log(
-              "Calling signTransaction - wallet popup should appear..."
-            );
             const signResult = await signTx(xdr, {
               address: walletState.address,
               networkPassphrase: network.networkPassphrase,
             });
 
-            console.log("Sign result received:", signResult);
 
             if (!signResult || !signResult.signedTxXdr) {
               throw new Error(
@@ -1256,29 +1137,21 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             }
 
             // Parse the signed XDR back into a Transaction object
-            console.log("Parsing signed XDR to Transaction object...");
             const signedTransaction = TransactionBuilder.fromXDR(
               signResult.signedTxXdr,
               network.networkPassphrase
             );
 
             // Send the signed transaction via RPC
-            console.log("Sending signed transaction via RPC...");
             const server = createRpcServer();
             const sendResponse =
               await server.sendTransaction(signedTransaction);
 
-            console.log(
-              "Transaction sent successfully via signAndSend:",
-              sendResponse
-            );
 
             // signAndSend() returns a SendTransactionResponse
             // Check for errors in the response
             let finalResponse: any = sendResponse;
             if (sendResponse.status === "PENDING" && sendResponse.hash) {
-              console.log("Transaction pending, waiting for confirmation...");
-              console.log("Transaction hash:", sendResponse.hash);
 
               // Poll for transaction status
               const server = createRpcServer();
@@ -1304,13 +1177,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                         : undefined,
                     hash: sendResponse.hash,
                   };
-                  console.log(
-                    `Transaction status check ${attempts + 1}:`,
-                    finalResponse.status
-                  );
                   attempts++;
                 } catch (error) {
-                  console.warn("Error checking transaction status:", error);
                   attempts++;
                 }
               }
@@ -1321,7 +1189,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                 );
               }
 
-              console.log("Transaction confirmed:", finalResponse.status);
             }
 
             // Check for errors in the response
@@ -1442,13 +1309,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
                 }
               }
 
-              console.error("Transaction error:", {
-                status: finalResponse.status,
-                errorResult: errorResult,
-                fullResponse: finalResponse,
-                errorMessage,
-                diagnosticEvents: finalResponse.diagnosticEvents,
-              });
               throw new Error(errorMessage);
             }
 
@@ -1458,10 +1318,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
               throw new Error("Transaction sent but no hash returned");
             }
 
-            console.log("Transaction hash:", txHash);
             return txHash;
           } catch (signError: any) {
-            console.error("Error during transaction signing:", signError);
             if (
               signError.message?.includes("User rejected") ||
               signError.message?.includes("rejected")
@@ -1471,7 +1329,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             throw signError;
           }
         } catch (error: any) {
-          console.error(`Error sending ${method}:`, error);
           throw error;
         }
       },
@@ -1517,7 +1374,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       }
       // If nativeBalance is null, keep existing balance (don't reset to 0)
     } catch (error) {
-      console.error("Error refreshing balance:", error);
     }
   };
 

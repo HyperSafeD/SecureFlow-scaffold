@@ -160,6 +160,27 @@ impl SecureFlow {
         refund_system::extend_deadline(&env, escrow_id, depositor, extra_seconds)
     }
 
+    /// Raise an overdue dispute after the project deadline (callable by client OR freelancer).
+    /// Puts the escrow into Disputed state and queues it for arbiter review.
+    pub fn raise_overdue_dispute(env: Env, escrow_id: u32, requester: Address, reason: String) -> Result<(), Error> {
+        refund_system::raise_overdue_dispute(&env, escrow_id, requester, reason)
+    }
+
+    /// Arbiter: approve refund — return all unreleased funds to the client.
+    pub fn arbiter_approve_refund(env: Env, escrow_id: u32, arbiter: Address) -> Result<(), Error> {
+        refund_system::arbiter_approve_refund(&env, escrow_id, arbiter)
+    }
+
+    /// Arbiter: award portion to the freelancer, return the rest to the client.
+    pub fn arbiter_award_freelancer(env: Env, escrow_id: u32, arbiter: Address, freelancer_amount: i128) -> Result<(), Error> {
+        refund_system::arbiter_award_freelancer(&env, escrow_id, arbiter, freelancer_amount)
+    }
+
+    /// View: get the pending overdue request for an escrow, if any.
+    pub fn get_overdue_request(env: Env, escrow_id: u32) -> Option<crate::storage_types::OverdueRequest> {
+        refund_system::get_overdue_request(&env, escrow_id)
+    }
+
     // View functions
     pub fn get_escrow(env: Env, escrow_id: u32) -> Option<EscrowData> {
         escrow_core::get_escrow(&env, escrow_id)
@@ -208,6 +229,11 @@ impl SecureFlow {
             .set(&DataKey::AuthorizedArbiter(arbiter.clone()), &true);
         admin::add_to_list_unique(&env, DataKey::AuthorizedArbiters, arbiter);
         Ok(())
+    }
+
+    /// Owner-only: revoke an arbiter's authorization (e.g. compromised or malicious wallet).
+    pub fn remove_arbiter(env: Env, arbiter: Address) -> Result<(), Error> {
+        admin::remove_arbiter(&env, arbiter)
     }
 
     /// Owner-only: withdraw stuck funds (excess above escrowed amounts) for a given token contract.

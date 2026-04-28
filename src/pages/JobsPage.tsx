@@ -102,7 +102,6 @@ export default function JobsPage() {
       setContractConfigError(null);
       setIsContractPaused(health.jobCreationPaused);
     } catch (error) {
-      console.error("Error checking pause status:", error);
       const msg =
         error instanceof Error ? error.message : "Contract check failed.";
       setContractConfigError(msg);
@@ -147,14 +146,7 @@ export default function JobsPage() {
             wallet.address
           );
           applicationStatus[job.id] = hasAppliedResult;
-          console.log(
-            `[checkApplicationStatus] Job ${job.id} hasApplied: ${hasAppliedResult}`
-          );
         } catch (error) {
-          console.warn(
-            `[checkApplicationStatus] Error checking job ${job.id}:`,
-            error
-          );
           // Preserve existing state if check fails
           applicationStatus[job.id] = hasApplied[job.id] || false;
         }
@@ -165,7 +157,6 @@ export default function JobsPage() {
         ...applicationStatus, // Merge with existing state instead of replacing
       }));
     } catch (error) {
-      console.error("[checkApplicationStatus] Error:", error);
       // Don't reset state on error
     }
   };
@@ -204,10 +195,6 @@ export default function JobsPage() {
         const latestLedger = await rpcServer.getLatestLedger();
         currentLedger = latestLedger.sequence;
       } catch (error) {
-        console.warn(
-          "Could not fetch current ledger, using approximate timestamp:",
-          error
-        );
         // Fallback: use current time as approximation
         const SECONDS_PER_LEDGER = 5;
         currentLedger = Math.floor(Date.now() / 1000 / SECONDS_PER_LEDGER);
@@ -221,9 +208,6 @@ export default function JobsPage() {
       // escrowCount is the next available ID, so actual count is escrowCount - 1
       const actualCount = Math.max(0, escrowCount - 1);
       setTotalEscrowsCount(actualCount);
-      console.log(
-        `Total escrows from blockchain: ${actualCount} (next ID: ${escrowCount})`
-      );
 
       const openJobs: Escrow[] = [];
 
@@ -275,15 +259,7 @@ export default function JobsPage() {
                     i,
                     wallet.address
                   );
-                  console.log(
-                    `User ${wallet.address} has applied to job ${i}:`,
-                    userHasApplied
-                  );
                 } catch (error) {
-                  console.warn(
-                    `Error checking if user applied to job ${i}:`,
-                    error
-                  );
                   userHasApplied = false;
                 }
               }
@@ -326,15 +302,6 @@ export default function JobsPage() {
               };
 
               // Log blockchain data for debugging
-              console.log(`Job ${i} from blockchain:`, {
-                id: job.id,
-                creator: job.payer,
-                amount: job.totalAmount,
-                status: job.status,
-                createdAt: new Date(job.createdAt).toISOString(),
-                projectTitle: job.projectTitle,
-                isJobCreator: job.isJobCreator,
-              });
 
               openJobs.push(job);
 
@@ -344,10 +311,6 @@ export default function JobsPage() {
                   ...prev,
                   [job.id]: userHasApplied, // Always use blockchain result
                 };
-                console.log(
-                  `[fetchOpenJobs] Setting hasApplied[${job.id}] = ${userHasApplied}`,
-                  newState
-                );
                 return newState;
               });
             }
@@ -360,7 +323,6 @@ export default function JobsPage() {
 
       // Set the actual jobs from the blockchain contract
       // All data in openJobs is fetched directly from the blockchain
-      console.log(`Loaded ${openJobs.length} jobs from blockchain`);
       setJobs(openJobs);
     } catch (error) {
       toast({
@@ -429,15 +391,7 @@ export default function JobsPage() {
             wallet.address
           );
           userHasApplied = hasAppliedResult;
-          console.log(
-            `[handleApply] User ${wallet.address} has applied to job ${job.id}:`,
-            hasAppliedResult
-          );
         } catch (error) {
-          console.warn(
-            `[handleApply] Error checking if user applied to job ${job.id}:`,
-            error
-          );
           // If check fails, use local state as fallback
           userHasApplied = hasApplied[job.id] || false;
         }
@@ -590,12 +544,6 @@ export default function JobsPage() {
           ) : (
             filteredJobs.map((job, index) => {
               const jobHasApplied = hasApplied[job.id] || false;
-              console.log(
-                `[JobsPage] Rendering JobCard for job ${job.id}, hasApplied:`,
-                jobHasApplied,
-                "Full state:",
-                hasApplied
-              );
               return (
                 <JobCard
                   key={job.id}

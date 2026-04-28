@@ -125,7 +125,6 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       // Don't aggressively sign the user out on transient wallet errors.
       // Freighter (and other wallets) may throw if locked, not yet injected,
       // or if the user closes the popup. Keep storage/state so they can retry.
-      console.error(e);
     } finally {
       popupLock.current = false;
     }

@@ -60,7 +60,6 @@ export class StellarContract {
       }
       return result;
     } catch (error) {
-      console.error(`Error calling ${method}:`, error);
       throw error;
     }
   }

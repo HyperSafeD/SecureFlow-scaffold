@@ -7,7 +7,10 @@ import CreatePage from "./pages/CreatePage";
 import DashboardPage from "./pages/DashboardPage";
 import FreelancerPage from "./pages/FreelancerPage";
 import AdminPage from "./pages/AdminPage";
+import DisputesPage from "./pages/DisputesPage";
 import ApprovalsPage from "./pages/ApprovalsPage";
+import FreelancersPage from "./pages/FreelancersPage";
+import MessagesPage from "./pages/MessagesPage";
 import Debugger from "./pages/Debugger";
 
 const AppLayout = () => (
@@ -26,11 +29,14 @@ function App() {
       <Route element={<AppLayout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/jobs" element={<JobsPage />} />
+        <Route path="/freelancers" element={<FreelancersPage />} />
         <Route path="/create" element={<CreatePage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/freelancer" element={<FreelancerPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/disputes" element={<DisputesPage />} />
         <Route path="/approvals" element={<ApprovalsPage />} />
+        <Route path="/messages" element={<MessagesPage />} />
         <Route path="/debug" element={<Debugger />} />
         <Route path="/debug/:contractName" element={<Debugger />} />
       </Route>

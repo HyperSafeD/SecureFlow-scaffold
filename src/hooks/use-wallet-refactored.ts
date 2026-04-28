@@ -56,7 +56,6 @@ export const useWalletRefactored = () => {
                   : "0";
                 updateBalance(balance);
               } catch (error) {
-                console.error("Error fetching balance:", error);
                 updateBalance("0");
               }
 
@@ -71,14 +70,12 @@ export const useWalletRefactored = () => {
               throw new Error("Failed to get wallet address");
             }
           } catch (error) {
-            console.error("Error in wallet selection:", error);
             updateConnectionStatus(false);
             throw error;
           }
         },
       });
     } catch (error) {
-      console.error("Error opening wallet modal:", error);
       updateConnectionStatus(false);
       throw error;
     }
@@ -94,7 +91,6 @@ export const useWalletRefactored = () => {
         description: "Your wallet has been disconnected",
       });
     } catch (error) {
-      console.error("Error disconnecting wallet:", error);
       throw error;
     }
   }, [disconnectWalletStore, updateConnectionStatus]);
@@ -115,7 +111,6 @@ export const useWalletRefactored = () => {
         : "0";
       updateBalance(balance);
     } catch (error) {
-      console.error("Error refreshing balance:", error);
     }
   }, [updateBalance]);
 

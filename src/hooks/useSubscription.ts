@@ -73,10 +73,6 @@ export function useSubscription(
             try {
               onEvent(event);
             } catch (error) {
-              console.error(
-                "Poll Events: subscription callback had error: ",
-                error
-              );
             } finally {
               // Update paging token if available
               if ((event as any).pagingToken) {
@@ -86,7 +82,6 @@ export function useSubscription(
           });
         }
       } catch (error) {
-        console.error("Poll Events: error: ", error);
       } finally {
         if (!stop) {
           timeoutId = setTimeout(() => void pollEvents(), pollInterval);

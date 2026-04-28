@@ -84,7 +84,6 @@ export function RatingDialog({
       onOpenChange(false);
       onRatingSubmitted?.();
     } catch (error: any) {
-      console.error("Error submitting rating:", error);
       toast({
         title: "Rating Failed",
         description:

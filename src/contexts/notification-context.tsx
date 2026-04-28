@@ -13,6 +13,7 @@ import {
   getNotifications,
   isApiConfigured,
   patchNotificationRead,
+  postNotification,
   notificationIdIsRemote,
   type RemoteNotificationRow,
 } from "@/lib/api";
@@ -130,7 +131,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!wallet.address || !isApiConfigured()) return;
     void syncRemoteNotifications();
-    const t = window.setInterval(() => void syncRemoteNotifications(), 45_000);
+    const t = window.setInterval(() => void syncRemoteNotifications(), 15_000);
     return () => window.clearInterval(t);
   }, [wallet.address, syncRemoteNotifications]);
 
@@ -145,39 +146,54 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       read: false,
     };
 
-    const targets = (targetAddresses ?? [])
-      .filter(Boolean)
-      .map((a) => a.toLowerCase());
+    // Keep original addresses for API calls; use lowercase only for comparisons
+    const targets = (targetAddresses ?? []).filter(Boolean);
     const current = wallet.address?.toLowerCase();
     const shouldNotifyCurrent =
-      targets.length === 0 || (current ? targets.includes(current) : false);
+      targets.length === 0 ||
+      (current ? targets.some((a) => a.toLowerCase() === current) : false);
 
-    // Only add to current user's notifications when no explicit targets were provided
-    // (or when the caller explicitly included the current wallet as a target).
     if (shouldNotifyCurrent) {
       setNotifications((prev) => [newNotification, ...prev]);
     }
 
-    // If target addresses are specified, also store for those addresses (cross-wallet notifications)
+    // Send cross-wallet notifications via backend API (Supabase) so the
+    // other party actually receives them regardless of browser / device.
     if (targets.length > 0) {
       targets.forEach((address) => {
-        if (address && address !== current) {
-          const existingNotifications = JSON.parse(
-            localStorage.getItem(`notifications_${address}`) || "[]",
-          );
-          const updatedNotifications = [
-            newNotification,
-            ...existingNotifications,
-          ];
-          localStorage.setItem(
-            `notifications_${address}`,
-            JSON.stringify(updatedNotifications),
-          );
+        if (address && address.toLowerCase() !== current) {
+          if (isApiConfigured()) {
+            postNotification({
+              wallet_address: address, // original case preserved — backend requires G-prefix
+              type: notification.type,
+              title: notification.title,
+              message: notification.message,
+              action_url: notification.actionUrl,
+              data: notification.data,
+            }).catch(() => {
+              // Fallback: write to localStorage so the other party at least
+              // sees it if they happen to share the same browser profile.
+              const existing = JSON.parse(
+                localStorage.getItem(`notifications_${address}`) || "[]",
+              );
+              localStorage.setItem(
+                `notifications_${address}`,
+                JSON.stringify([newNotification, ...existing]),
+              );
+            });
+          } else {
+            const existing = JSON.parse(
+              localStorage.getItem(`notifications_${address}`) || "[]",
+            );
+            localStorage.setItem(
+              `notifications_${address}`,
+              JSON.stringify([newNotification, ...existing]),
+            );
+          }
         }
       });
     }
 
-    // Show toast for important notifications
     if (
       shouldNotifyCurrent &&
       (notification.type === "milestone" || notification.type === "dispute")
@@ -261,16 +277,34 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setNotifications((prev) => [newNotification, ...prev]);
     }
 
-    // Send to all target addresses
+    // Send cross-wallet notifications via backend API (Supabase).
     targetAddresses.forEach((address) => {
-      const existingNotifications = JSON.parse(
-        localStorage.getItem(`notifications_${address}`) || "[]",
-      );
-      const updatedNotifications = [newNotification, ...existingNotifications];
-      localStorage.setItem(
-        `notifications_${address}`,
-        JSON.stringify(updatedNotifications),
-      );
+      if (isApiConfigured()) {
+        postNotification({
+          wallet_address: address,
+          type: newNotification.type,
+          title: newNotification.title,
+          message: newNotification.message,
+          action_url: newNotification.actionUrl,
+          data: newNotification.data,
+        }).catch(() => {
+          const existing = JSON.parse(
+            localStorage.getItem(`notifications_${address}`) || "[]",
+          );
+          localStorage.setItem(
+            `notifications_${address}`,
+            JSON.stringify([newNotification, ...existing]),
+          );
+        });
+      } else {
+        const existing = JSON.parse(
+          localStorage.getItem(`notifications_${address}`) || "[]",
+        );
+        localStorage.setItem(
+          `notifications_${address}`,
+          JSON.stringify([newNotification, ...existing]),
+        );
+      }
     });
 
     // Show toast for important notifications

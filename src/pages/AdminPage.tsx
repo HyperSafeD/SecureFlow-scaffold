@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,13 +22,39 @@ import { contractService } from "@/lib/web3/contract-service";
 import { useWeb3 } from "@/contexts/web3-context";
 
 // Unused imports removed: AdminHeader, AdminStats, ContractControls, AdminLoading
-import { DisputeResolution } from "@/components/admin/dispute-resolution";
-import { Lock, Shield, Play, Pause, AlertTriangle, User, Scale } from "lucide-react";
+// Dispute panels moved to dedicated /disputes page
+import { Lock, Shield, Play, Pause, AlertTriangle, User, Scale, UserX } from "lucide-react";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+function DisputeEntryCard() {
+  return (
+    <Card className="glass border-primary/20 p-6 sm:p-7">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-orange-100 dark:bg-orange-900/30 shrink-0">
+          <Scale className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-lg font-semibold mb-1">Dispute Centre</h3>
+          <p className="text-sm text-muted-foreground">
+            Review and resolve active milestone disputes and overdue project
+            arbitration requests. All resolutions are recorded on-chain and both
+            parties are notified instantly.
+          </p>
+        </div>
+        <Button asChild className="shrink-0 gap-2">
+          <Link to="/disputes">
+            <Scale className="h-4 w-4" />
+            Open Dispute Centre
+          </Link>
+        </Button>
+      </div>
+    </Card>
+  );
+}
 
 export default function AdminPage() {
   const { wallet } = useWeb3();
@@ -48,8 +75,10 @@ export default function AdminPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionType, setActionType] = useState<
-    "pause" | "unpause" | "authorizeArbiter" | null
+    "pause" | "unpause" | "authorizeArbiter" | "removeArbiter" | null
   >(null);
+  const [arbiterToRemove, setArbiterToRemove] = useState<string | null>(null);
+  const [authorizedArbiterList, setAuthorizedArbiterList] = useState<string[]>([]);
   const [arbiterAddress, setArbiterAddress] = useState("");
   const [tokenToWhitelist, setTokenToWhitelist] = useState("");
   const [whitelistedTokenList, setWhitelistedTokenList] = useState<string[]>([]);
@@ -79,7 +108,6 @@ export default function AdminPage() {
       const owner = await contractService.getOwner();
       setContractOwner(owner);
     } catch (error) {
-      console.error("Error fetching contract owner:", error);
       // Fallback to env variable
       const ownerFromEnv = import.meta.env.VITE_OWNER_ADDRESS;
       if (ownerFromEnv) {
@@ -93,7 +121,6 @@ export default function AdminPage() {
       const fc = await contractService.getFeeCollector();
       setFeeCollector(fc);
     } catch (error) {
-      console.error("Error fetching fee collector:", error);
       setFeeCollector(null);
     }
   };
@@ -107,6 +134,7 @@ export default function AdminPage() {
         contractService.getWhitelistedTokens(),
       ]);
       setWhitelistedTokenList(tokens);
+      setAuthorizedArbiterList(arbiters);
       setContractStats({
         platformFeeBP,
         totalEscrows,
@@ -152,7 +180,6 @@ export default function AdminPage() {
       );
       setIsPaused(paused);
     } catch (error) {
-      console.error("Error checking pause status:", error);
       // Fallback to false if contract call fails
       setIsPaused(false);
     } finally {
@@ -201,7 +228,6 @@ export default function AdminPage() {
 
           // Use the new hook to pause
           const pauseTxHash = await pauseJobCreation.mutateAsync();
-          console.log("Pause transaction hash:", pauseTxHash);
           // Reload page to refresh all data
           window.location.reload();
           break;
@@ -231,7 +257,6 @@ export default function AdminPage() {
 
           // Use the new hook to unpause
           const unpauseTxHash = await unpauseJobCreation.mutateAsync();
-          console.log("Unpause transaction hash:", unpauseTxHash);
           // Reload page to refresh all data
           window.location.reload();
           break;
@@ -247,10 +272,22 @@ export default function AdminPage() {
             return;
           }
 
-          // Use the mutation hook which already has toast notifications
           await authorizeArbiterMutation.mutateAsync(arbiterAddress.trim());
           setArbiterAddress("");
-          // Reload page to refresh all data
+          window.location.reload();
+          break;
+
+        case "removeArbiter":
+          if (!arbiterToRemove) {
+            setDialogOpen(false);
+            return;
+          }
+          await contractService.removeArbiter(arbiterToRemove);
+          toast({
+            title: "Arbiter Removed",
+            description: `${arbiterToRemove.slice(0, 8)}… has been revoked.`,
+          });
+          setArbiterToRemove(null);
           window.location.reload();
           break;
       }
@@ -259,7 +296,6 @@ export default function AdminPage() {
       // (mutations handle their own success/error states)
       setDialogOpen(false);
     } catch (error: any) {
-      console.error("Error executing action:", error);
       toast({
         title: "Action failed",
         description: error.message || "Failed to perform admin action",
@@ -298,6 +334,14 @@ export default function AdminPage() {
           icon: Shield,
           confirmText: "Authorize Arbiter",
           variant: "default" as const,
+        };
+      case "removeArbiter":
+        return {
+          title: "Remove Arbiter",
+          description: `Revoke authorization for ${arbiterToRemove ? `${arbiterToRemove.slice(0, 10)}…${arbiterToRemove.slice(-6)}` : "this arbiter"}. They will no longer be able to resolve disputes. This action is recorded on-chain.`,
+          icon: Shield,
+          confirmText: "Remove Arbiter",
+          variant: "destructive" as const,
         };
       default:
         return {
@@ -480,8 +524,8 @@ export default function AdminPage() {
             </div>
           </Card>
 
-          {/* Dispute Resolution - Available to both owners and arbiters */}
-          <DisputeResolution onDisputeResolved={fetchContractStats} />
+          {/* Dispute Centre entry card */}
+          <DisputeEntryCard />
 
           {/* Owner-only sections */}
           {isOwner && (
@@ -538,6 +582,39 @@ export default function AdminPage() {
                         )}
                       </Button>
                     </div>
+
+                    {/* Active arbiters list */}
+                    {authorizedArbiterList.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-border/40">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                          Active Arbiters ({authorizedArbiterList.length})
+                        </p>
+                        <div className="space-y-2">
+                          {authorizedArbiterList.map((addr) => (
+                            <div
+                              key={addr}
+                              className="flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-2"
+                            >
+                              <span className="font-mono text-xs truncate text-foreground/80">
+                                {addr.slice(0, 12)}…{addr.slice(-6)}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                                title="Revoke arbiter"
+                                onClick={() => {
+                                  setArbiterToRemove(addr);
+                                  openDialog("removeArbiter");
+                                }}
+                              >
+                                <UserX className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </Card>

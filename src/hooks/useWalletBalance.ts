@@ -51,7 +51,6 @@ export const useWalletBalance = () => {
           error: new Error("Error fetching balance. Is your wallet funded?"),
         });
       } else {
-        console.error(err);
         setState({
           isLoading: false,
           balances: [],

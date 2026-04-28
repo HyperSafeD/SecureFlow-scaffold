@@ -81,7 +81,6 @@ export function DelegationProvider({ children }: { children: ReactNode }) {
         setDelegations(JSON.parse(stored));
       }
     } catch (error) {
-      console.error("Failed to load delegations:", error);
     }
   };
 
@@ -120,9 +119,7 @@ export function DelegationProvider({ children }: { children: ReactNode }) {
         isActive: true,
       };
 
-      console.log("Creating delegation:", delegation);
       const updatedDelegations = [...delegations, delegation];
-      console.log("Updated delegations:", updatedDelegations);
       saveDelegations(updatedDelegations);
 
       // Wait for state update
@@ -136,7 +133,6 @@ export function DelegationProvider({ children }: { children: ReactNode }) {
       // Delegation created successfully
       return delegation.id;
     } catch (error: any) {
-      console.error("Delegation creation failed:", error);
       toast({
         title: "Delegation Failed",
         description: error.message || "Failed to create delegation",
@@ -161,7 +157,6 @@ export function DelegationProvider({ children }: { children: ReactNode }) {
         description: "Delegation has been successfully revoked",
       });
     } catch (error: any) {
-      console.error("Delegation revocation failed:", error);
       toast({
         title: "Revocation Failed",
         description: error.message || "Failed to revoke delegation",
@@ -201,17 +196,10 @@ export function DelegationProvider({ children }: { children: ReactNode }) {
       }
 
       // Execute via truly gasless delegation (no blockchain interaction)
-      console.log(
-        "Executing TRULY gasless delegated function:",
-        functionName,
-        "with args:",
-        args,
-      );
 
       // Simulate gasless execution - no MetaMask, no blockchain, no gas fees
       const txHash = "0x" + Math.random().toString(16).substr(2, 64);
 
-      console.log("TRULY gasless delegation executed:", txHash);
 
       // Simulate processing time for realistic UX
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -224,7 +212,6 @@ export function DelegationProvider({ children }: { children: ReactNode }) {
       // Transaction successful
       return txHash;
     } catch (error: any) {
-      console.error("Delegated function execution failed:", error);
       toast({
         title: "Execution Failed",
         description: error.message || "Failed to execute delegated function",

@@ -181,7 +181,6 @@ export class ContractService {
       }
 
       if (!escrowMap) {
-        console.log(`❌ Escrow ${escrowId} does not exist - no return value`);
         return null;
       }
 
@@ -191,9 +190,6 @@ export class ContractService {
         escrowMap._switch &&
         escrowMap._switch.name === "scvVoid"
       ) {
-        console.log(
-          `❌ Escrow ${escrowId} does not exist - Option::None (scvVoid)`
-        );
         return null;
       }
 
@@ -281,7 +277,6 @@ export class ContractService {
                   const val = extractValue(valScVal);
                   escrowDataMap[keyStr] = val;
                 } catch (e) {
-                  console.warn(`Could not extract value for key ${keyStr}:`, e);
                   // Use the value as is if extraction fails
                   escrowDataMap[keyStr] = valScVal;
                 }
@@ -302,7 +297,6 @@ export class ContractService {
             escrowDataMap = escrowMap;
           }
         } catch (e) {
-          console.warn("Could not convert escrow map:", e);
           // If conversion fails, try to use it as is
           if (escrowMap && typeof escrowMap === "object") {
             escrowDataMap = escrowMap;
@@ -519,11 +513,6 @@ export class ContractService {
 
       // Convert status enum to number
       let statusNumber = 0;
-      console.log(
-        `[getEscrow] Escrow ${escrowId} raw status:`,
-        status,
-        typeof status
-      );
       if (status) {
         if (typeof status === "string") {
           // Status is an enum like "Pending", "Active", etc.
@@ -590,9 +579,6 @@ export class ContractService {
           statusNumber = status;
         }
       }
-      console.log(
-        `[getEscrow] Escrow ${escrowId} status number: ${statusNumber}`
-      );
 
       // CRITICAL: Check if escrow actually exists
       // If the contract returns Option::None, the map will be empty or missing key fields
@@ -617,17 +603,7 @@ export class ContractService {
 
       // Debug logging disabled to reduce console noise
       // Uncomment for debugging:
-      // console.log(`Escrow ${escrowId} extracted values:`, {
-      //   depositor,
-      //   beneficiary,
-      //   totalAmount,
-      //   deadline,
-      //   createdAt,
-      //   projectTitle,
-      //   projectDescription,
-      //   status: statusNumber,
-      // });
-
+      //
       return {
         escrow_id: escrowId,
         creator: depositor || "",
@@ -643,7 +619,6 @@ export class ContractService {
         project_description: projectDescription || "",
       };
     } catch (error) {
-      console.error("Error getting escrow:", error);
       // If escrow doesn't exist or there's an error, return null instead of throwing
       // This allows getNextEscrowId to continue iterating
       return null;
@@ -685,10 +660,6 @@ export class ContractService {
       if ("errorResult" in simulation && simulation.errorResult) {
         const errorValue =
           (simulation.errorResult as any).value?.() || simulation.errorResult;
-        console.warn(
-          `[getMilestones] Contract get_milestones simulation error:`,
-          errorValue
-        );
         return [];
       }
 
@@ -725,13 +696,11 @@ export class ContractService {
             }));
           }
         } catch (e) {
-          console.warn(`[getMilestones] Error parsing return value:`, e);
         }
       }
 
       return [];
     } catch (error) {
-      console.error("Error getting milestones:", error);
       return [];
     }
   }
@@ -744,9 +713,6 @@ export class ContractService {
     userAddress: string
   ): Promise<boolean> {
     try {
-      console.log(
-        `[hasUserApplied] Checking if ${userAddress} applied to job ${escrowId}`
-      );
 
       // Try using the contract's has_applied function first
       try {
@@ -781,10 +747,6 @@ export class ContractService {
         if ("errorResult" in simulation && simulation.errorResult) {
           const errorValue =
             (simulation.errorResult as any).value?.() || simulation.errorResult;
-          console.warn(
-            `[hasUserApplied] Contract has_applied simulation error:`,
-            errorValue
-          );
           throw new Error(`Simulation error: ${errorValue}`);
         }
 
@@ -811,36 +773,17 @@ export class ContractService {
         if (returnValue) {
           try {
             const result = scValToNative(returnValue as xdr.ScVal);
-            console.log(
-              `[hasUserApplied] Contract has_applied result:`,
-              result
-            );
             const hasApplied = Boolean(result);
-            console.log(
-              `[hasUserApplied] User has applied (from contract): ${hasApplied}`
-            );
             return hasApplied;
           } catch (e) {
-            console.warn(`[hasUserApplied] Error parsing return value:`, e);
           }
         } else {
-          console.warn(
-            `[hasUserApplied] No returnValue found in simulation. Available keys:`,
-            Object.keys(simulation)
-          );
         }
       } catch (contractError) {
-        console.error(
-          "[hasUserApplied] Contract has_applied failed, falling back to getApplications:",
-          contractError
-        );
       }
 
       // Fallback: Use getApplications to get all applications and check if user is in the list
       const applications = await this.getApplications(escrowId);
-      console.log(
-        `[hasUserApplied] Found ${applications.length} applications for job ${escrowId}`
-      );
 
       const hasApplied = applications.some(
         (app) =>
@@ -849,13 +792,8 @@ export class ContractService {
             userAddress.toLowerCase().trim()
       );
 
-      console.log(`[hasUserApplied] User has applied: ${hasApplied}`);
       return hasApplied;
     } catch (error) {
-      console.error(
-        "[hasUserApplied] Error checking if user has applied:",
-        error
-      );
       return false;
     }
   }
@@ -894,7 +832,6 @@ export class ContractService {
       const simulation = await this.rpcServer.simulateTransaction(tx);
 
       if ("errorResult" in simulation && simulation.errorResult) {
-        console.warn("[getBadge] Error:", simulation.errorResult);
         return "Beginner"; // Default
       }
 
@@ -917,7 +854,6 @@ export class ContractService {
 
       return "Beginner";
     } catch (error) {
-      console.error("[getBadge] Error:", error);
       return "Beginner";
     }
   }
@@ -956,7 +892,6 @@ export class ContractService {
       const simulation = await this.rpcServer.simulateTransaction(tx);
 
       if ("errorResult" in simulation && simulation.errorResult) {
-        console.warn("[getAverageRating] Error:", simulation.errorResult);
         return { average: 0, count: 0 };
       }
 
@@ -974,7 +909,6 @@ export class ContractService {
 
       return { average: 0, count: 0 };
     } catch (error) {
-      console.error("[getAverageRating] Error:", error);
       return { average: 0, count: 0 };
     }
   }
@@ -1126,7 +1060,6 @@ export class ContractService {
 
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("[submitRating] Error:", error);
       throw error;
     }
   }
@@ -1167,7 +1100,6 @@ export class ContractService {
       const simulation = await this.rpcServer.simulateTransaction(tx);
 
       if ("errorResult" in simulation && simulation.errorResult) {
-        console.warn("[getRating] Error:", simulation.errorResult);
         return null;
       }
 
@@ -1191,7 +1123,6 @@ export class ContractService {
 
       return null;
     } catch (error) {
-      console.error("[getRating] Error:", error);
       return null;
     }
   }
@@ -1244,10 +1175,6 @@ export class ContractService {
         if ("errorResult" in simulation && simulation.errorResult) {
           const errorValue =
             (simulation.errorResult as any).value?.() || simulation.errorResult;
-          console.warn(
-            `[getApplications] Contract get_applications simulation error:`,
-            errorValue
-          );
           throw new Error(`Simulation error: ${errorValue}`);
         }
 
@@ -1274,10 +1201,6 @@ export class ContractService {
         if (returnValue) {
           try {
             const result = scValToNative(returnValue as xdr.ScVal);
-            console.log(
-              `[getApplications] Contract get_applications result:`,
-              result
-            );
 
             if (Array.isArray(result)) {
               const applications = result.map((app: any) => ({
@@ -1292,42 +1215,21 @@ export class ContractService {
                   app.applied_at || app.appliedAt || app[3] || 0
                 ),
               }));
-              console.log(
-                `[getApplications] Successfully retrieved ${applications.length} applications from contract`
-              );
               return applications;
             } else {
-              console.warn(
-                `[getApplications] Contract returned non-array result:`,
-                result
-              );
             }
           } catch (e) {
-            console.warn(`[getApplications] Error parsing return value:`, e);
           }
         } else {
           // Log the simulation structure to debug (but don't stringify - might have circular refs)
-          console.warn(
-            `[getApplications] No returnValue found in simulation. Available keys:`,
-            Object.keys(simulation)
-          );
           // Check if result exists but in a different structure
           if ((simulation as any).result) {
             const result = (simulation as any).result;
-            console.warn(
-              `[getApplications] simulation.result exists:`,
-              result,
-              "Type:",
-              typeof result,
-              "Keys:",
-              result && typeof result === "object" ? Object.keys(result) : "N/A"
-            );
             // Try to extract from result.retval
             if (result && result.retval) {
               try {
                 const retval = result.retval;
                 const parsed = scValToNative(retval as xdr.ScVal);
-                console.log(`[getApplications] Found result.retval:`, parsed);
                 if (Array.isArray(parsed)) {
                   // Fetch badge and rating for each freelancer
                   const applicationsWithMetadata = await Promise.all(
@@ -1361,35 +1263,18 @@ export class ContractService {
                     })
                   );
 
-                  console.log(
-                    `[getApplications] Successfully retrieved ${applicationsWithMetadata.length} applications from result.retval`
-                  );
                   return applicationsWithMetadata;
                 }
               } catch (e) {
-                console.warn(
-                  `[getApplications] Error parsing result.retval:`,
-                  e
-                );
               }
             }
           }
           if ((simulation as any).transactionData) {
             const txData = (simulation as any).transactionData;
-            console.warn(
-              `[getApplications] simulation.transactionData exists:`,
-              txData,
-              "Keys:",
-              txData && typeof txData === "object" ? Object.keys(txData) : "N/A"
-            );
             if (txData && txData.result && txData.result.retval) {
               try {
                 const retval = txData.result.retval;
                 const parsed = scValToNative(retval as xdr.ScVal);
-                console.log(
-                  `[getApplications] Found transactionData.result.retval:`,
-                  parsed
-                );
                 if (Array.isArray(parsed)) {
                   const applications = parsed.map((app: any) => ({
                     freelancer: String(app.freelancer || app[0] || ""),
@@ -1406,25 +1291,14 @@ export class ContractService {
                       app.applied_at || app.appliedAt || app[3] || 0
                     ),
                   }));
-                  console.log(
-                    `[getApplications] Successfully retrieved ${applications.length} applications from transactionData.result.retval`
-                  );
                   return applications;
                 }
               } catch (e) {
-                console.warn(
-                  `[getApplications] Error parsing transactionData.result.retval:`,
-                  e
-                );
               }
             }
           }
         }
       } catch (contractError) {
-        console.error(
-          "[getApplications] Contract get_applications failed, falling back to storage read:",
-          contractError
-        );
       }
 
       // Fallback: Read from storage directly
@@ -1463,14 +1337,6 @@ export class ContractService {
           );
 
           const entry = await this.rpcServer.getLedgerEntries(ledgerKey);
-          console.log(
-            `[getApplications] Entry for appIndex ${appIndex}:`,
-            entry
-          );
-          console.log(
-            `[getApplications] Key XDR:`,
-            applicationKey.toXDR().toString("base64")
-          );
 
           if (entry && entry.entries && entry.entries.length > 0) {
             const entryData = entry.entries[0];
@@ -1556,17 +1422,12 @@ export class ContractService {
 
       return applications;
     } catch (error) {
-      console.error("Error getting applications:", error);
       return [];
     }
   }
 
   async getNextEscrowId(): Promise<number> {
     try {
-      console.log(
-        "getNextEscrowId: Counting escrows by checking each ID directly"
-      );
-      console.log("Contract ID:", this.contractId);
 
       // WORKAROUND: Since NextEscrowId is in instance storage and hard to read directly,
       // we'll count escrows by checking each ID until we find one that doesn't exist
@@ -1586,17 +1447,14 @@ export class ContractService {
         try {
           const escrow = await this.getEscrow(mid);
           if (escrow) {
-            console.log(`✅ Escrow ${mid} exists on blockchain`);
             maxId = Math.max(maxId, mid);
             lowerBound = mid + 1; // Check higher IDs
           } else {
             // Escrow doesn't exist, check lower IDs
-            console.log();
             upperBound = mid - 1;
           }
         } catch (error) {
           // Error reading escrow, assume it doesn't exist
-          console.log(error);
           upperBound = mid - 1;
         }
       }
@@ -1621,12 +1479,8 @@ export class ContractService {
       const nextId = maxId + 1;
       const actualCount = maxId;
 
-      console.log(
-        `✅ Found ${actualCount} escrows on blockchain (next ID: ${nextId})`
-      );
       return nextId;
     } catch (error) {
-      console.error("Error getting next escrow ID:", error);
       // Return a default value if there's an error
       return 1;
     }
@@ -1637,7 +1491,6 @@ export class ContractService {
       const result = await this.client.get_user_escrows({ user: userAddress });
       return result.result as number[];
     } catch (error) {
-      console.error("Error getting user escrows:", error);
       throw error;
     }
   }
@@ -1647,7 +1500,6 @@ export class ContractService {
       const result = await this.client.get_reputation({ user: userAddress });
       return result.result as number;
     } catch (error) {
-      console.error("Error getting reputation:", error);
       return 0;
     }
   }
@@ -1656,7 +1508,6 @@ export class ContractService {
     this.syncFromConfig();
     const health = await this.probeEscrowContractHealth();
     if (!health.ok) {
-      console.error("Error checking pause status:", health.userMessage);
       return false;
     }
     return health.jobCreationPaused;
@@ -1815,7 +1666,6 @@ export class ContractService {
           }
         }
       } catch (e: any) {
-        console.error("Error converting ScVal to native:", e);
         // If scValToNative fails, try manual extraction
         try {
           if (retval && typeof retval === "object" && "switch" in retval) {
@@ -1849,7 +1699,6 @@ export class ContractService {
       // Ensure ownerAddress is a string
       return String(ownerAddress);
     } catch (error) {
-      console.error("Error getting owner:", error);
       throw error;
     }
   }
@@ -1925,6 +1774,25 @@ export class ContractService {
     const native = scValToNative(rv) as any;
     if (!Array.isArray(native)) return [];
     return native.map((a) => String(a));
+  }
+
+  async getOverdueRequest(
+    escrowId: number,
+  ): Promise<{ requester: string; reason: string; requested_at: number } | null> {
+    try {
+      const rv = await this.simulateReadonly("get_overdue_request", [
+        nativeToScVal(escrowId, { type: "u32" }),
+      ]);
+      const native = scValToNative(rv) as any;
+      if (!native) return null;
+      return {
+        requester: String(native.requester ?? ""),
+        reason: String(native.reason ?? ""),
+        requested_at: Number(native.requested_at ?? 0),
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -2069,7 +1937,6 @@ export class ContractService {
 
       if (returnValue) {
         try {
-          console.log("Simulation returnValue:", returnValue);
           // Check if returnValue has a retval property (common in Stellar SDK)
           let scVal: xdr.ScVal;
           if (returnValue.retval) {
@@ -2087,21 +1954,13 @@ export class ContractService {
             scVal = returnValue as xdr.ScVal;
           }
           const result = scValToNative(scVal);
-          console.log("Parsed simulation result:", result, typeof result);
           if (typeof result === "number") {
             escrowIdFromSimulation = result;
-            console.log("Escrow ID from simulation:", escrowIdFromSimulation);
           }
         } catch (e) {
-          console.warn("Could not parse escrow ID from simulation:", e);
         }
       } else {
-        console.log(
-          "No returnValue in simulation. Simulation structure:",
-          Object.keys(simulation)
-        );
         if ((simulation as any).result) {
-          console.log("Simulation result:", (simulation as any).result);
         }
       }
 
@@ -2150,11 +2009,13 @@ export class ContractService {
             }
           });
 
-          const newTx = newTxBuilder.setTimeout(30).build();
+          const newTx = newTxBuilder
+            .setSorobanData((prepared as any).getSorobanData?.() ?? (prepared as any).sorobanData)
+            .setTimeout(30)
+            .build();
 
-          const newPrepared = await this.rpcServer.prepareTransaction(newTx);
           const signedTxXdr = await signTransaction({
-            unsignedTransaction: newPrepared.toXDR(),
+            unsignedTransaction: newTx.toXDR(),
             address: walletAddress,
           });
 
@@ -2167,41 +2028,20 @@ export class ContractService {
             await this.rpcServer.sendTransaction(signedTransaction);
 
           const txHash = sendResponse.hash || "";
-          console.log("Transaction sent! Hash:", txHash);
-          console.log(
-            "View on StellarExpert:",
-            `https://stellar.expert/explorer/testnet/tx/${txHash}`
-          );
-          console.log("Send response status:", sendResponse.status);
 
           if (!txHash) {
-            console.error(
-              "Transaction sent but no hash returned!",
-              sendResponse
-            );
             throw new Error("Transaction sent but no hash returned");
           }
 
           if (sendResponse.status === "PENDING" && txHash) {
-            console.log("Waiting for transaction confirmation...");
             await this.waitForConfirmation(txHash);
-            console.log("Transaction confirmed on blockchain!");
           } else if (sendResponse.status === "DUPLICATE") {
-            console.warn(
-              "Transaction is duplicate, using existing hash:",
-              txHash
-            );
           } else if (sendResponse.status === "TRY_AGAIN_LATER") {
-            console.warn("Transaction should be retried later");
             throw new Error("Transaction should be retried later");
           }
 
           // Return escrow ID from simulation if available
           if (escrowIdFromSimulation !== undefined) {
-            console.log(
-              "Returning escrow ID from simulation:",
-              escrowIdFromSimulation
-            );
             return escrowIdFromSimulation;
           }
 
@@ -2209,26 +2049,15 @@ export class ContractService {
           // Wait a bit more to ensure transaction is fully processed
           await new Promise((resolve) => setTimeout(resolve, 2000));
 
-          console.log("Fetching transaction result for hash:", txHash);
           let txResult = await this.rpcServer.getTransaction(txHash);
           const hasResultXdr = "resultXdr" in txResult && txResult.resultXdr;
-          console.log("Transaction result:", {
-            status: txResult.status,
-            hasResultXdr: !!hasResultXdr,
-            resultXdrType: typeof hasResultXdr,
-          });
 
           // If transaction is still NOT_FOUND, wait a bit more and retry
           if (txResult.status === "NOT_FOUND") {
-            console.log("Transaction not found, waiting and retrying...");
             await new Promise((resolve) => setTimeout(resolve, 3000));
             txResult = await this.rpcServer.getTransaction(txHash);
             const retryHasResultXdr =
               "resultXdr" in txResult && txResult.resultXdr;
-            console.log("Retry transaction result:", {
-              status: txResult.status,
-              hasResultXdr: !!retryHasResultXdr,
-            });
           }
 
           if (
@@ -2254,10 +2083,6 @@ export class ContractService {
               } else {
                 // Try to use it as is, but check if it has the right structure
                 const resultXdrObj = resultXdr as any;
-                console.log("resultXdr structure:", {
-                  keys: Object.keys(resultXdrObj),
-                  constructor: resultXdrObj.constructor?.name,
-                });
                 // Check if it has a retval property (common in Stellar SDK)
                 if (resultXdrObj.retval) {
                   resultScVal = resultXdrObj.retval;
@@ -2285,25 +2110,13 @@ export class ContractService {
                 }
               }
               const result = scValToNative(resultScVal);
-              console.log("Parsed transaction result:", result, typeof result);
               if (typeof result === "number") {
                 return result;
               }
             } catch (e) {
-              console.warn(
-                "Could not parse escrow ID from transaction result:",
-                e,
-                txResult.resultXdr
-              );
             }
           }
 
-          console.error(
-            "Could not get escrow ID - simulation:",
-            escrowIdFromSimulation,
-            "txResult:",
-            txResult
-          );
           throw new Error("Could not get escrow ID from transaction");
         }
       }
@@ -2323,15 +2136,8 @@ export class ContractService {
         await this.rpcServer.sendTransaction(signedTransaction);
 
       const txHash = sendResponse.hash || "";
-      console.log("Transaction sent! Hash:", txHash);
-      console.log(
-        "View on StellarExpert:",
-        `https://stellar.expert/explorer/testnet/tx/${txHash}`
-      );
-      console.log("Send response status:", sendResponse.status);
 
       if (!txHash) {
-        console.error("Transaction sent but no hash returned!", sendResponse);
         throw new Error("Transaction sent but no hash returned");
       }
 
@@ -2360,22 +2166,14 @@ export class ContractService {
       }
 
       if (sendResponse.status === "PENDING" && txHash) {
-        console.log("Waiting for transaction confirmation...");
         await this.waitForConfirmation(txHash);
-        console.log("Transaction confirmed on blockchain!");
       } else if (sendResponse.status === "DUPLICATE") {
-        console.warn("Transaction is duplicate, using existing hash:", txHash);
       } else if (sendResponse.status === "TRY_AGAIN_LATER") {
-        console.warn("Transaction should be retried later");
         throw new Error("Transaction should be retried later");
       }
 
       // Return escrow ID from simulation if available
       if (escrowIdFromSimulation !== undefined) {
-        console.log(
-          "Returning escrow ID from simulation:",
-          escrowIdFromSimulation
-        );
         return escrowIdFromSimulation;
       }
 
@@ -2383,25 +2181,14 @@ export class ContractService {
       // Wait a bit more to ensure transaction is fully processed
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      console.log("Fetching transaction result for hash:", txHash);
       let txResult = await this.rpcServer.getTransaction(txHash);
       const hasResultXdr = "resultXdr" in txResult && txResult.resultXdr;
-      console.log("Transaction result:", {
-        status: txResult.status,
-        hasResultXdr: !!hasResultXdr,
-        resultXdrType: typeof hasResultXdr,
-      });
 
       // If transaction is still NOT_FOUND, wait a bit more and retry
       if (txResult.status === "NOT_FOUND") {
-        console.log("Transaction not found, waiting and retrying...");
         await new Promise((resolve) => setTimeout(resolve, 3000));
         txResult = await this.rpcServer.getTransaction(txHash);
         const retryHasResultXdr = "resultXdr" in txResult && txResult.resultXdr;
-        console.log("Retry transaction result:", {
-          status: txResult.status,
-          hasResultXdr: !!retryHasResultXdr,
-        });
       }
 
       if (
@@ -2424,10 +2211,6 @@ export class ContractService {
           } else {
             // Try to use it as is, but check if it has the right structure
             const resultXdrObj = resultXdr as any;
-            console.log("resultXdr structure:", {
-              keys: Object.keys(resultXdrObj),
-              constructor: resultXdrObj.constructor?.name,
-            });
             // Check if it has a retval property (common in Stellar SDK)
             if (resultXdrObj.retval) {
               resultScVal = resultXdrObj.retval;
@@ -2455,28 +2238,15 @@ export class ContractService {
             }
           }
           const result = scValToNative(resultScVal);
-          console.log("Parsed transaction result:", result, typeof result);
           if (typeof result === "number") {
             return result;
           }
         } catch (e) {
-          console.warn(
-            "Could not parse escrow ID from transaction result:",
-            e,
-            txResult.resultXdr
-          );
         }
       }
 
-      console.error(
-        "Could not get escrow ID - simulation:",
-        escrowIdFromSimulation,
-        "txResult:",
-        txResult
-      );
       throw new Error("Could not get escrow ID from transaction");
     } catch (error: any) {
-      console.error("Error creating escrow:", error);
       throw error;
     }
   }
@@ -2488,7 +2258,6 @@ export class ContractService {
       throw new Error("Beneficiary address is required");
     }
 
-    console.log("[startWork] Using beneficiary address:", beneficiary);
 
     try {
       // Build transaction manually with beneficiary as source account
@@ -2516,7 +2285,6 @@ export class ContractService {
         .setTimeout(30)
         .build();
 
-      console.log("[startWork] Transaction built, simulating...");
 
       const simulation = await this.rpcServer.simulateTransaction(tx);
 
@@ -2527,15 +2295,10 @@ export class ContractService {
             : []
           : [];
 
-      console.log("[startWork] Simulation complete", {
-        hasAuthEntries: authEntries.length > 0,
-        authEntriesCount: authEntries.length,
-      });
 
       if ("errorResult" in simulation && simulation.errorResult) {
         const errorValue =
           (simulation.errorResult as any).value?.() || simulation.errorResult;
-        console.error("[startWork] Simulation failed:", errorValue);
         throw new Error(
           `Transaction simulation failed: ${errorValue.toString()}`
         );
@@ -2546,17 +2309,10 @@ export class ContractService {
       let signedTxXdr: string;
 
       if (authEntries && authEntries.length > 0) {
-        console.log("[startWork] Signing auth entries", {
-          authSignerAddress: beneficiary,
-          authEntriesCount: authEntries.length,
-        });
         const signedAuthEntries = await signAuthEntries(
           authEntries as any[],
           beneficiary
         );
-        console.log("[startWork] Auth entries signed", {
-          signedCount: signedAuthEntries.length,
-        });
 
         const parsedSignedAuth = signedAuthEntries.map((signed: string) =>
           xdr.SorobanAuthorizationEntry.fromXDR(signed, "base64")
@@ -2579,12 +2335,12 @@ export class ContractService {
               networkPassphrase: this.network.networkPassphrase,
             })
               .addOperation(newOp)
+              .setSorobanData((prepared as any).getSorobanData?.() ?? (prepared as any).sorobanData)
               .setTimeout(30)
               .build();
 
-            const newPrepared = await this.rpcServer.prepareTransaction(newTx);
             signedTxXdr = await signTransaction({
-              unsignedTransaction: newPrepared.toXDR(),
+              unsignedTransaction: newTx.toXDR(),
               address: beneficiary,
             });
           } else {
@@ -2594,16 +2350,12 @@ export class ContractService {
           throw new Error("No operations found in prepared transaction");
         }
       } else {
-        console.log("[startWork] No auth entries, signing normally", {
-          signerAddress: beneficiary,
-        });
         signedTxXdr = await signTransaction({
           unsignedTransaction: prepared.toXDR(),
           address: beneficiary,
         });
       }
 
-      console.log("[startWork] Transaction signed, sending...");
 
       const signedTransaction = TransactionBuilder.fromXDR(
         signedTxXdr,
@@ -2623,7 +2375,6 @@ export class ContractService {
 
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error starting work:", error);
       throw error;
     }
   }
@@ -2640,10 +2391,6 @@ export class ContractService {
       throw new Error("Beneficiary address is required");
     }
 
-    console.log(
-      "[submitMilestone] Using beneficiary address:",
-      params.beneficiary
-    );
 
     try {
       // Build transaction manually with beneficiary as source account
@@ -2673,7 +2420,6 @@ export class ContractService {
         .setTimeout(30)
         .build();
 
-      console.log("[submitMilestone] Transaction built, simulating...");
 
       const simulation = await this.rpcServer.simulateTransaction(tx);
 
@@ -2684,15 +2430,10 @@ export class ContractService {
             : []
           : [];
 
-      console.log("[submitMilestone] Simulation complete", {
-        hasAuthEntries: authEntries.length > 0,
-        authEntriesCount: authEntries.length,
-      });
 
       if ("errorResult" in simulation && simulation.errorResult) {
         const errorValue =
           (simulation.errorResult as any).value?.() || simulation.errorResult;
-        console.error("[submitMilestone] Simulation failed:", errorValue);
         throw new Error(
           `Transaction simulation failed: ${errorValue.toString()}`
         );
@@ -2703,17 +2444,10 @@ export class ContractService {
       let signedTxXdr: string;
 
       if (authEntries && authEntries.length > 0) {
-        console.log("[submitMilestone] Signing auth entries", {
-          authSignerAddress: params.beneficiary,
-          authEntriesCount: authEntries.length,
-        });
         const signedAuthEntries = await signAuthEntries(
           authEntries as any[],
           params.beneficiary
         );
-        console.log("[submitMilestone] Auth entries signed", {
-          signedCount: signedAuthEntries.length,
-        });
 
         const parsedSignedAuth = signedAuthEntries.map((signed: string) =>
           xdr.SorobanAuthorizationEntry.fromXDR(signed, "base64")
@@ -2753,16 +2487,12 @@ export class ContractService {
           throw new Error("No operations found in prepared transaction");
         }
       } else {
-        console.log("[submitMilestone] No auth entries, signing normally", {
-          signerAddress: params.beneficiary,
-        });
         signedTxXdr = await signTransaction({
           unsignedTransaction: prepared.toXDR(),
           address: params.beneficiary,
         });
       }
 
-      console.log("[submitMilestone] Transaction signed, sending...");
 
       const signedTransaction = TransactionBuilder.fromXDR(
         signedTxXdr,
@@ -2782,7 +2512,6 @@ export class ContractService {
 
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error submitting milestone:", error);
       throw error;
     }
   }
@@ -2800,10 +2529,6 @@ export class ContractService {
       throw new Error("Beneficiary address is required");
     }
 
-    console.log(
-      "[resubmitMilestone] Using beneficiary address:",
-      params.beneficiary
-    );
 
     try {
       const { Contract, nativeToScVal, TransactionBuilder, Operation, xdr } =
@@ -2831,7 +2556,6 @@ export class ContractService {
         .setTimeout(30)
         .build();
 
-      console.log("[resubmitMilestone] Transaction built, simulating...");
 
       const simulation = await this.rpcServer.simulateTransaction(tx);
 
@@ -2842,15 +2566,10 @@ export class ContractService {
             : []
           : [];
 
-      console.log("[resubmitMilestone] Simulation complete", {
-        hasAuthEntries: authEntries.length > 0,
-        authEntriesCount: authEntries.length,
-      });
 
       if ("errorResult" in simulation && simulation.errorResult) {
         const errorValue =
           (simulation.errorResult as any).value?.() || simulation.errorResult;
-        console.error("[resubmitMilestone] Simulation failed:", errorValue);
         throw new Error(
           `Transaction simulation failed: ${errorValue.toString()}`
         );
@@ -2861,17 +2580,10 @@ export class ContractService {
       let signedTxXdr: string;
 
       if (authEntries && authEntries.length > 0) {
-        console.log("[resubmitMilestone] Signing auth entries", {
-          authSignerAddress: params.beneficiary,
-          authEntriesCount: authEntries.length,
-        });
         const signedAuthEntries = await signAuthEntries(
           authEntries as any[],
           params.beneficiary
         );
-        console.log("[resubmitMilestone] Auth entries signed", {
-          signedCount: signedAuthEntries.length,
-        });
 
         const parsedSignedAuth = signedAuthEntries.map((signed: string) =>
           xdr.SorobanAuthorizationEntry.fromXDR(signed, "base64")
@@ -2908,16 +2620,12 @@ export class ContractService {
           throw new Error("No operations found in prepared transaction");
         }
       } else {
-        console.log("[resubmitMilestone] No auth entries, signing normally", {
-          signerAddress: params.beneficiary,
-        });
         signedTxXdr = await signTransaction({
           unsignedTransaction: prepared.toXDR(),
           address: params.beneficiary,
         });
       }
 
-      console.log("[resubmitMilestone] Transaction signed, sending...");
 
       const signedTransaction = TransactionBuilder.fromXDR(
         signedTxXdr,
@@ -2937,7 +2645,6 @@ export class ContractService {
 
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error resubmitting milestone:", error);
       throw error;
     }
   }
@@ -2950,10 +2657,6 @@ export class ContractService {
     if (!params.depositor) {
       throw new Error("Depositor address is required");
     }
-    console.log(
-      "[approveMilestone] Using depositor address:",
-      params.depositor
-    );
     try {
       const { Contract, nativeToScVal, TransactionBuilder, Operation, xdr } =
         await import("@stellar/stellar-sdk");
@@ -2976,7 +2679,6 @@ export class ContractService {
         )
         .setTimeout(30)
         .build();
-      console.log("[approveMilestone] Transaction built, simulating...");
       const simulation = await this.rpcServer.simulateTransaction(tx);
       const authEntries =
         "auth" in simulation && simulation.auth
@@ -2984,14 +2686,9 @@ export class ContractService {
             ? simulation.auth
             : []
           : [];
-      console.log("[approveMilestone] Simulation complete", {
-        hasAuthEntries: authEntries.length > 0,
-        authEntriesCount: authEntries.length,
-      });
       if ("errorResult" in simulation && simulation.errorResult) {
         const errorValue =
           (simulation.errorResult as any).value?.() || simulation.errorResult;
-        console.error("[approveMilestone] Simulation failed:", errorValue);
         throw new Error(
           `Transaction simulation failed: ${errorValue.toString()}`
         );
@@ -2999,17 +2696,10 @@ export class ContractService {
       const prepared = await this.rpcServer.prepareTransaction(tx);
       let signedTxXdr: string;
       if (authEntries && authEntries.length > 0) {
-        console.log("[approveMilestone] Signing auth entries", {
-          authSignerAddress: params.depositor,
-          authEntriesCount: authEntries.length,
-        });
         const signedAuthEntries = await signAuthEntries(
           authEntries as any[],
           params.depositor
         );
-        console.log("[approveMilestone] Auth entries signed", {
-          signedCount: signedAuthEntries.length,
-        });
         const parsedSignedAuth = signedAuthEntries.map((signed: string) =>
           xdr.SorobanAuthorizationEntry.fromXDR(signed, "base64")
         );
@@ -3045,15 +2735,11 @@ export class ContractService {
           throw new Error("No operations found in prepared transaction");
         }
       } else {
-        console.log("[approveMilestone] No auth entries, signing normally", {
-          signerAddress: params.depositor,
-        });
         signedTxXdr = await signTransaction({
           unsignedTransaction: prepared.toXDR(),
           address: params.depositor,
         });
       }
-      console.log("[approveMilestone] Transaction signed, sending...");
       const signedTransaction = TransactionBuilder.fromXDR(
         signedTxXdr,
         this.network.networkPassphrase
@@ -3068,7 +2754,6 @@ export class ContractService {
       }
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error approving milestone:", error);
       throw error;
     }
   }
@@ -3082,7 +2767,6 @@ export class ContractService {
     if (!params.depositor) {
       throw new Error("Depositor address is required");
     }
-    console.log("[rejectMilestone] Using depositor address:", params.depositor);
     try {
       const { Contract, nativeToScVal, TransactionBuilder, Operation, xdr } =
         await import("@stellar/stellar-sdk");
@@ -3106,7 +2790,6 @@ export class ContractService {
         )
         .setTimeout(30)
         .build();
-      console.log("[rejectMilestone] Transaction built, simulating...");
       const simulation = await this.rpcServer.simulateTransaction(tx);
       const authEntries =
         "auth" in simulation && simulation.auth
@@ -3114,14 +2797,9 @@ export class ContractService {
             ? simulation.auth
             : []
           : [];
-      console.log("[rejectMilestone] Simulation complete", {
-        hasAuthEntries: authEntries.length > 0,
-        authEntriesCount: authEntries.length,
-      });
       if ("errorResult" in simulation && simulation.errorResult) {
         const errorValue =
           (simulation.errorResult as any).value?.() || simulation.errorResult;
-        console.error("[rejectMilestone] Simulation failed:", errorValue);
         throw new Error(
           `Transaction simulation failed: ${errorValue.toString()}`
         );
@@ -3129,17 +2807,10 @@ export class ContractService {
       const prepared = await this.rpcServer.prepareTransaction(tx);
       let signedTxXdr: string;
       if (authEntries && authEntries.length > 0) {
-        console.log("[rejectMilestone] Signing auth entries", {
-          authSignerAddress: params.depositor,
-          authEntriesCount: authEntries.length,
-        });
         const signedAuthEntries = await signAuthEntries(
           authEntries as any[],
           params.depositor
         );
-        console.log("[rejectMilestone] Auth entries signed", {
-          signedCount: signedAuthEntries.length,
-        });
         const parsedSignedAuth = signedAuthEntries.map((signed: string) =>
           xdr.SorobanAuthorizationEntry.fromXDR(signed, "base64")
         );
@@ -3175,15 +2846,11 @@ export class ContractService {
           throw new Error("No operations found in prepared transaction");
         }
       } else {
-        console.log("[rejectMilestone] No auth entries, signing normally", {
-          signerAddress: params.depositor,
-        });
         signedTxXdr = await signTransaction({
           unsignedTransaction: prepared.toXDR(),
           address: params.depositor,
         });
       }
-      console.log("[rejectMilestone] Transaction signed, sending...");
       const signedTransaction = TransactionBuilder.fromXDR(
         signedTxXdr,
         this.network.networkPassphrase
@@ -3198,7 +2865,6 @@ export class ContractService {
       }
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error rejecting milestone:", error);
       throw error;
     }
   }
@@ -3212,7 +2878,6 @@ export class ContractService {
     if (!params.disputer) {
       throw new Error("Disputer address is required");
     }
-    console.log("[disputeMilestone] Using disputer address:", params.disputer);
     try {
       const { Contract, nativeToScVal, TransactionBuilder, Operation, xdr } =
         await import("@stellar/stellar-sdk");
@@ -3236,7 +2901,6 @@ export class ContractService {
         )
         .setTimeout(30)
         .build();
-      console.log("[disputeMilestone] Transaction built, simulating...");
       const simulation = await this.rpcServer.simulateTransaction(tx);
       const authEntries =
         "auth" in simulation && simulation.auth
@@ -3244,14 +2908,9 @@ export class ContractService {
             ? simulation.auth
             : []
           : [];
-      console.log("[disputeMilestone] Simulation complete", {
-        hasAuthEntries: authEntries.length > 0,
-        authEntriesCount: authEntries.length,
-      });
       if ("errorResult" in simulation && simulation.errorResult) {
         const errorValue =
           (simulation.errorResult as any).value?.() || simulation.errorResult;
-        console.error("[disputeMilestone] Simulation failed:", errorValue);
         throw new Error(
           `Transaction simulation failed: ${errorValue.toString()}`
         );
@@ -3259,17 +2918,10 @@ export class ContractService {
       const prepared = await this.rpcServer.prepareTransaction(tx);
       let signedTxXdr: string;
       if (authEntries && authEntries.length > 0) {
-        console.log("[disputeMilestone] Signing auth entries", {
-          authSignerAddress: params.disputer,
-          authEntriesCount: authEntries.length,
-        });
         const signedAuthEntries = await signAuthEntries(
           authEntries as any[],
           params.disputer
         );
-        console.log("[disputeMilestone] Auth entries signed", {
-          signedCount: signedAuthEntries.length,
-        });
         const parsedSignedAuth = signedAuthEntries.map((signed: string) =>
           xdr.SorobanAuthorizationEntry.fromXDR(signed, "base64")
         );
@@ -3305,15 +2957,11 @@ export class ContractService {
           throw new Error("No operations found in prepared transaction");
         }
       } else {
-        console.log("[disputeMilestone] No auth entries, signing normally", {
-          signerAddress: params.disputer,
-        });
         signedTxXdr = await signTransaction({
           unsignedTransaction: prepared.toXDR(),
           address: params.disputer,
         });
       }
-      console.log("[disputeMilestone] Transaction signed, sending...");
       const signedTransaction = TransactionBuilder.fromXDR(
         signedTxXdr,
         this.network.networkPassphrase
@@ -3328,7 +2976,6 @@ export class ContractService {
       }
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error disputing milestone:", error);
       throw error;
     }
   }
@@ -3349,7 +2996,6 @@ export class ContractService {
 
       return await this.sendTransactionWithAuth(assembledTx, walletAddress);
     } catch (error: any) {
-      console.error("Error refunding escrow:", error);
       throw error;
     }
   }
@@ -3377,7 +3023,6 @@ export class ContractService {
 
       return await this.sendTransactionWithAuth(assembledTx, walletAddress);
     } catch (error: any) {
-      console.error("Error applying to job:", error);
       throw error;
     }
   }
@@ -3395,10 +3040,6 @@ export class ContractService {
 
     const depositorAddress = params.depositor;
 
-    console.log(
-      "[acceptFreelancer] Using depositor address:",
-      depositorAddress
-    );
 
     try {
       // Build transaction manually with depositor as source account
@@ -3435,16 +3076,11 @@ export class ContractService {
             : []
           : [];
 
-      console.log("[acceptFreelancer] Simulation complete", {
-        hasAuthEntries: authEntries.length > 0,
-        authEntriesCount: authEntries.length,
-      });
 
       // Check if simulation failed
       if ("errorResult" in simulation && simulation.errorResult) {
         const errorValue =
           (simulation.errorResult as any).value?.() || simulation.errorResult;
-        console.error("[acceptFreelancer] Simulation failed:", errorValue);
         throw new Error(
           `Transaction simulation failed: ${errorValue.toString()}`
         );
@@ -3455,17 +3091,10 @@ export class ContractService {
 
       // Sign auth entries if needed
       if (authEntries && authEntries.length > 0) {
-        console.log("[acceptFreelancer] Signing auth entries", {
-          authSignerAddress: depositorAddress,
-          authEntriesCount: authEntries.length,
-        });
         const signedAuthEntries = await signAuthEntries(
           authEntries as any[],
           depositorAddress
         );
-        console.log("[acceptFreelancer] Auth entries signed", {
-          signedCount: signedAuthEntries.length,
-        });
 
         // Rebuild transaction with signed auth entries
         const { xdr } = await import("@stellar/stellar-sdk");
@@ -3522,14 +3151,10 @@ export class ContractService {
       }
 
       // No auth entries, sign normally
-      console.log("[acceptFreelancer] Signing transaction (no auth entries)", {
-        signerAddress: depositorAddress,
-      });
       const signedTxXdr = await signTransaction({
         unsignedTransaction: prepared.toXDR(),
         address: depositorAddress,
       });
-      console.log("[acceptFreelancer] Transaction signed, sending...");
 
       const signedTransaction = TransactionBuilder.fromXDR(
         signedTxXdr,
@@ -3549,7 +3174,6 @@ export class ContractService {
 
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error accepting freelancer:", error);
       throw error;
     }
   }
@@ -3573,7 +3197,6 @@ export class ContractService {
 
       return await this.sendTransactionWithAuth(assembledTx, walletAddress);
     } catch (error: any) {
-      console.error("Error emergency refunding:", error);
       throw error;
     }
   }
@@ -3599,7 +3222,70 @@ export class ContractService {
 
       return await this.sendTransactionWithAuth(assembledTx, walletAddress);
     } catch (error: any) {
-      console.error("Error extending deadline:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Raise an overdue dispute after the project deadline (client or freelancer).
+   */
+  async raiseOverdueDispute(params: {
+    escrow_id: number;
+    requester: string;
+    reason: string;
+  }): Promise<string> {
+    const { address } = useWalletStore.getState();
+    if (!address) throw new Error("Wallet not connected");
+    try {
+      const assembledTx = await this.client.raise_overdue_dispute({
+        escrow_id: params.escrow_id,
+        requester: params.requester,
+        reason: params.reason,
+      });
+      return await this.sendTransactionWithAuth(assembledTx, address);
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  /**
+   * Arbiter: approve full refund to the client.
+   */
+  async arbiterApproveRefund(params: {
+    escrow_id: number;
+    arbiter: string;
+  }): Promise<string> {
+    const { address } = useWalletStore.getState();
+    if (!address) throw new Error("Wallet not connected");
+    try {
+      const assembledTx = await this.client.arbiter_approve_refund({
+        escrow_id: params.escrow_id,
+        arbiter: params.arbiter,
+      });
+      return await this.sendTransactionWithAuth(assembledTx, address);
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  /**
+   * Arbiter: award a specific amount to the freelancer, return rest to client.
+   */
+  async arbiterAwardFreelancer(params: {
+    escrow_id: number;
+    arbiter: string;
+    freelancer_amount: bigint;
+  }): Promise<string> {
+    const { address } = useWalletStore.getState();
+    if (!address) throw new Error("Wallet not connected");
+    try {
+      const assembledTx = await this.client.arbiter_award_freelancer({
+        escrow_id: params.escrow_id,
+        arbiter: params.arbiter,
+        freelancer_amount: params.freelancer_amount,
+      });
+      return await this.sendTransactionWithAuth(assembledTx, address);
+    } catch (error: any) {
       throw error;
     }
   }
@@ -3732,7 +3418,6 @@ export class ContractService {
 
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error pausing job creation:", error);
       throw error;
     }
   }
@@ -3862,7 +3547,6 @@ export class ContractService {
 
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error unpausing job creation:", error);
       throw error;
     }
   }
@@ -3903,7 +3587,6 @@ export class ContractService {
 
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error setting platform fee:", error);
       throw error;
     }
   }
@@ -3944,45 +3627,145 @@ export class ContractService {
 
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error setting fee collector:", error);
       throw error;
     }
   }
 
   async whitelistToken(token: string): Promise<string> {
     const { address } = useWalletStore.getState();
-    if (!address) {
-      throw new Error("Wallet not connected");
-    }
-
-    const walletAddress = address;
-
-    try {
-      const assembledTx = await this.client.whitelist_token({ token });
-
-      return await this.sendTransactionWithAuth(assembledTx, walletAddress);
-    } catch (error: any) {
-      console.error("Error whitelisting token:", error);
-      throw error;
-    }
+    if (!address) throw new Error("Wallet not connected");
+    return this.sendOwnerTransaction(
+      "whitelist_token",
+      [nativeToScVal(token, { type: "address" })],
+      address,
+    );
   }
 
   async authorizeArbiter(arbiter: string): Promise<string> {
     const { address } = useWalletStore.getState();
-    if (!address) {
-      throw new Error("Wallet not connected");
+    if (!address) throw new Error("Wallet not connected");
+    return this.sendOwnerTransaction(
+      "authorize_arbiter",
+      [nativeToScVal(arbiter, { type: "address" })],
+      address,
+    );
+  }
+
+  async removeArbiter(arbiter: string): Promise<string> {
+    const { address } = useWalletStore.getState();
+    if (!address) throw new Error("Wallet not connected");
+    return this.sendOwnerTransaction(
+      "remove_arbiter",
+      [nativeToScVal(arbiter, { type: "address" })],
+      address,
+    );
+  }
+
+  /**
+   * Helper for owner-only admin transactions.
+   * Mirrors the pauseJobCreation pattern exactly:
+   *   simulate → (sign auth entries if address-type) → setSorobanData → sign envelope → send
+   */
+  private async sendOwnerTransaction(
+    fnName: string,
+    args: any[],
+    ownerAddress: string,
+  ): Promise<string> {
+    const { xdr: stellarXdr } = await import("@stellar/stellar-sdk");
+    const contract = new Contract(this.contractId);
+    const sourceAccount = await this.rpcServer.getAccount(ownerAddress);
+
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: "100",
+      networkPassphrase: this.network.networkPassphrase,
+    })
+      .addOperation((contract as any).call(fnName, ...args))
+      .setTimeout(30)
+      .build();
+
+    // Simulate first to detect auth entries and errors
+    const simulation = await this.rpcServer.simulateTransaction(tx);
+
+    if ("errorResult" in simulation && simulation.errorResult) {
+      const errVal = (simulation.errorResult as any).value?.() ?? simulation.errorResult;
+      throw new Error(`Simulation failed: ${errVal.toString()}`);
+    }
+    if ("error" in simulation && (simulation as any).error) {
+      throw new Error(`Simulation error: ${(simulation as any).error}`);
     }
 
-    const walletAddress = address;
+    const authEntries: any[] =
+      "auth" in simulation && Array.isArray((simulation as any).auth)
+        ? (simulation as any).auth
+        : [];
 
-    try {
-      const assembledTx = await this.client.authorize_arbiter({ arbiter });
+    // Prepare the base transaction (attaches soroban data, fees, etc.)
+    const prepared = await this.rpcServer.prepareTransaction(tx);
 
-      return await this.sendTransactionWithAuth(assembledTx, walletAddress);
-    } catch (error: any) {
-      console.error("Error authorizing arbiter:", error);
-      throw error;
+    // If there are address-type auth entries that need explicit signing, sign them
+    const addressTypeEntries = authEntries.filter((e: any) => {
+      try {
+        return e.credentials().switch().value !==
+          stellarXdr.SorobanCredentialsType.sorobanCredentialsSourceAccount().value;
+      } catch {
+        return false;
+      }
+    });
+
+    let finalPrepared = prepared;
+    if (addressTypeEntries.length > 0) {
+      const signedAuthEntries = await signAuthEntries(addressTypeEntries, ownerAddress);
+      const parsedSignedAuth = signedAuthEntries.map((s: string) =>
+        stellarXdr.SorobanAuthorizationEntry.fromXDR(s, "base64"),
+      );
+
+      const operations = prepared.operations;
+      if (operations.length > 0 && operations[0].type === "invokeHostFunction") {
+        const invokeOp = operations[0] as any;
+        const hostFn = invokeOp.function || invokeOp.hostFunction;
+        const newOp = Operation.invokeHostFunction({
+          function: hostFn as stellarXdr.HostFunction,
+          auth: parsedSignedAuth,
+        } as any);
+
+        const freshAccount = await this.rpcServer.getAccount(ownerAddress);
+        // Reuse soroban data from the already-prepared tx — do NOT call prepareTransaction
+        // again or it will overwrite the signed auth entries.
+        finalPrepared = new TransactionBuilder(freshAccount, {
+          fee: prepared.fee,
+          networkPassphrase: this.network.networkPassphrase,
+        })
+          .addOperation(newOp)
+          .setSorobanData(
+            (prepared as any).getSorobanData?.() ?? (prepared as any).sorobanData,
+          )
+          .setTimeout(30)
+          .build() as any;
+      }
     }
+
+    const signedXdr = await signTransaction({
+      unsignedTransaction: (finalPrepared as any).toXDR(),
+      address: ownerAddress,
+    });
+
+    const signedTx = TransactionBuilder.fromXDR(signedXdr, this.network.networkPassphrase);
+    const sendResponse = await this.rpcServer.sendTransaction(signedTx);
+
+    if (sendResponse.status === "ERROR") {
+      let errMsg = "Transaction failed";
+      try {
+        errMsg = `Transaction failed: ${(sendResponse as any).errorResult?.toXDR("base64") ?? "unknown"}`;
+      } catch {
+        errMsg = `Transaction failed (status ERROR)`;
+      }
+      throw new Error(errMsg);
+    }
+
+    if (sendResponse.hash) {
+      return await this.waitForConfirmation(sendResponse.hash);
+    }
+    return (sendResponse as any).hash ?? "";
   }
 
   async withdrawStuckFunds(params: {
@@ -4034,7 +3817,6 @@ export class ContractService {
       }
       return sendResponse.hash || "";
     } catch (error: any) {
-      console.error("Error withdrawing stuck funds:", error);
       throw error;
     }
   }
@@ -4071,7 +3853,6 @@ export class ContractService {
       const simulation = await this.rpcServer.simulateTransaction(tx);
 
       if ("errorResult" in simulation && simulation.errorResult) {
-        console.warn("[isAuthorizedArbiter] Error:", simulation.errorResult);
         return false;
       }
 
@@ -4084,7 +3865,6 @@ export class ContractService {
       }
       return false;
     } catch (error) {
-      console.error("[isAuthorizedArbiter] Error:", error);
       return false;
     }
   }
@@ -4097,34 +3877,20 @@ export class ContractService {
     walletAddress: string,
     sourceAddress?: string
   ): Promise<string> {
-    console.log("[sendTransactionWithAuth] Called", {
-      walletAddress,
-      sourceAddress,
-      hasAssembledTx: !!assembledTx,
-    });
 
     // Simulate to check for errors and get auth entries
     const tx = TransactionBuilder.fromXDR(
       assembledTx.toXDR(),
       this.network.networkPassphrase
     );
-    console.log("[sendTransactionWithAuth] Transaction built from XDR");
 
     // If sourceAddress is provided, rebuild the transaction with that source account
     // This is needed when the depositor needs to sign auth entries (even if same as walletAddress)
     // The transaction must be built with the depositor as the source for auth to be detected
     let transactionToSimulate = tx;
     if (sourceAddress) {
-      console.log(
-        "[sendTransactionWithAuth] Rebuilding transaction with sourceAddress:",
-        sourceAddress
-      );
       const sourceAccount = await this.rpcServer.getAccount(sourceAddress);
       const operations = tx.operations;
-      console.log(
-        "[sendTransactionWithAuth] Operations count:",
-        operations?.length || 0
-      );
       if (operations && operations.length > 0) {
         const newTx = new TransactionBuilder(sourceAccount, {
           fee: tx.fee,
@@ -4133,19 +3899,9 @@ export class ContractService {
         operations.forEach((op) => newTx.addOperation(op as any));
         const timeout = (tx as any).timeout || 30;
         transactionToSimulate = newTx.setTimeout(timeout).build();
-        console.log(
-          "[sendTransactionWithAuth] Transaction rebuilt with sourceAddress:",
-          sourceAddress
-        );
       } else {
-        console.warn(
-          "[sendTransactionWithAuth] No operations found in transaction"
-        );
       }
     } else {
-      console.log(
-        "[sendTransactionWithAuth] No sourceAddress provided, using original transaction"
-      );
     }
 
     const simulation = await this.rpcServer.simulateTransaction(
@@ -4160,16 +3916,11 @@ export class ContractService {
           : []
         : [];
 
-    console.log("[sendTransactionWithAuth] Simulation complete", {
-      hasAuthEntries: authEntries.length > 0,
-      authEntriesCount: authEntries.length,
-    });
 
     // Check if simulation failed
     if ("errorResult" in simulation && simulation.errorResult) {
       const errorValue =
         (simulation.errorResult as any).value?.() || simulation.errorResult;
-      console.error("[sendTransactionWithAuth] Simulation failed:", errorValue);
       throw new Error(
         `Transaction simulation failed: ${errorValue.toString()}`
       );
@@ -4185,17 +3936,10 @@ export class ContractService {
       // Use sourceAddress if provided, otherwise use walletAddress
       // For create_escrow, we need to sign auth entries for the depositor
       const authSignerAddress = sourceAddress || walletAddress;
-      console.log("[sendTransactionWithAuth] Signing auth entries", {
-        authSignerAddress,
-        authEntriesCount: authEntries.length,
-      });
       const signedAuthEntries = await signAuthEntries(
         authEntries as any[],
         authSignerAddress
       );
-      console.log("[sendTransactionWithAuth] Auth entries signed", {
-        signedCount: signedAuthEntries.length,
-      });
       // Rebuild transaction with signed auth entries
       const { xdr } = await import("@stellar/stellar-sdk");
       const parsedSignedAuth = signedAuthEntries.map((signed: string) =>
@@ -4216,17 +3960,21 @@ export class ContractService {
           // Use sourceAddress if provided, otherwise use walletAddress
           const signerAddress = sourceAddress || walletAddress;
           const freshAccount = await this.rpcServer.getAccount(signerAddress);
+
+          // Rebuild with the already-prepared soroban data but signed auth entries.
+          // Do NOT call prepareTransaction again — it would re-simulate and overwrite
+          // the signed auth entries with fresh unsigned ones.
           const newTx = new TransactionBuilder(freshAccount, {
             fee: prepared.fee,
             networkPassphrase: this.network.networkPassphrase,
           })
             .addOperation(newOp)
+            .setSorobanData((prepared as any).getSorobanData?.() ?? (prepared as any).sorobanData)
             .setTimeout(30)
             .build();
 
-          const newPrepared = await this.rpcServer.prepareTransaction(newTx);
           const signedTxXdr = await signTransaction({
-            unsignedTransaction: newPrepared.toXDR(),
+            unsignedTransaction: newTx.toXDR(),
             address: signerAddress,
           });
 
@@ -4254,17 +4002,10 @@ export class ContractService {
     // No auth entries, sign normally
     // Use sourceAddress if provided, otherwise use walletAddress
     const signerAddress = sourceAddress || walletAddress;
-    console.log(
-      "[sendTransactionWithAuth] Signing transaction (no auth entries)",
-      {
-        signerAddress,
-      }
-    );
     const signedTxXdr = await signTransaction({
       unsignedTransaction: prepared.toXDR(),
       address: signerAddress,
     });
-    console.log("[sendTransactionWithAuth] Transaction signed, sending...");
 
     const signedTransaction = TransactionBuilder.fromXDR(
       signedTxXdr,
@@ -4300,20 +4041,10 @@ export class ContractService {
         const status = txStatus.status as string;
 
         if (status === "SUCCESS") {
-          console.log("Transaction confirmed! Hash:", hash);
-          console.log(
-            "View on StellarExpert:",
-            `https://stellar.expert/explorer/testnet/tx/${hash}`
-          );
           return hash;
         }
 
         if (status === "FAILED") {
-          console.error("Transaction failed on blockchain! Hash:", hash);
-          console.log(
-            "View on StellarExpert:",
-            `https://stellar.expert/explorer/testnet/tx/${hash}`
-          );
           throw new Error("Transaction failed");
         }
 
@@ -4337,7 +4068,6 @@ export class ContractService {
           attempts++;
           continue;
         }
-        console.warn("Error checking transaction status:", error);
         attempts++;
       }
     }

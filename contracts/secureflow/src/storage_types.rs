@@ -62,6 +62,8 @@ pub enum SecureFlowError {
     InvalidAddress = 1701,
     InvalidParameter = 1702,
     InsufficientWithdrawable = 1703,
+    NoOverdueRequest = 1704,
+    NoArbitersAvailable = 1705,
     
     // Rating errors (1800-1899)
     EscrowNotCompleted = 1800,
@@ -169,6 +171,15 @@ pub struct EscrowData {
     pub project_description: String,
 }
 
+/// Stored when either party raises an overdue dispute, awaiting arbiter resolution.
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct OverdueRequest {
+    pub requester: Address,
+    pub reason: String,
+    pub requested_at: u32,
+}
+
 // Storage keys enum
 #[derive(Clone)]
 #[contracttype]
@@ -193,5 +204,6 @@ pub enum DataKey {
     FeeCollector,                   // -> Address
     Owner,                          // -> Address
     JobCreationPaused,              // -> bool
+    OverdueRequest(u32),            // escrow_id -> OverdueRequest (set when either party requests resolution)
 }
 

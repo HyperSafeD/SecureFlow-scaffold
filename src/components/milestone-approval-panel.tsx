@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckCircle, XCircle, Clock, AlertCircle } from "lucide-react";
+import { CheckCircle, XCircle, Clock, AlertCircle, Paperclip } from "lucide-react";
+import { parseAttachment } from "@/lib/utils";
 import { motion } from "framer-motion";
 import type { Escrow, Milestone } from "@/lib/web3/types";
 
@@ -143,7 +144,25 @@ function MilestoneApprovalItem({
               Awaiting Approval
             </Badge>
           </div>
-          <p className="text-sm text-gray-700 mb-2">{milestone.description}</p>
+          {(() => {
+            const { body, attachment } = parseAttachment(milestone.description ?? "");
+            return (
+              <>
+                <p className="text-sm text-gray-700 mb-1 whitespace-pre-wrap">{body}</p>
+                {attachment && (
+                  <a
+                    href={attachment.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 mb-2 text-sm text-primary hover:underline"
+                  >
+                    <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                    {attachment.name}
+                  </a>
+                )}
+              </>
+            );
+          })()}
           <p className="text-sm font-semibold text-green-600">
             {(Number.parseFloat(milestone.amount) / 1e7).toFixed(2)} tokens
           </p>

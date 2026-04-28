@@ -10,7 +10,7 @@ import { useFreelancerStatus } from "@/hooks/use-freelancer-status";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { useJobCreatorStatus } from "@/hooks/use-job-creator-status";
 import { usePendingApprovals } from "@/hooks/use-pending-approvals";
-
+import { useWeb3 } from "@/contexts/web3-context";
 export function Navbar() {
   const location = useLocation();
   const pathname = location.pathname;
@@ -21,6 +21,7 @@ export function Navbar() {
   const { isAdmin } = useAdminStatus();
   const { isJobCreator } = useJobCreatorStatus();
   const { hasPendingApprovals } = usePendingApprovals();
+  useWeb3();
 
   const isActive = (path: string) => {
     if (path === "/") {

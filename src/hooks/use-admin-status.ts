@@ -28,7 +28,6 @@ export function useAdminStatus() {
     try {
       // Check if contract address is set
       if (!CONTRACTS.SECUREFLOW_ESCROW) {
-        console.warn("SECUREFLOW_ESCROW contract address not set");
         setIsAdmin(false);
         setIsOwner(false);
         setIsArbiter(false);
@@ -45,7 +44,6 @@ export function useAdminStatus() {
       }
 
       if (!owner) {
-        console.warn("Owner not found in contract (or env override missing)");
         setIsAdmin(false);
         setIsOwner(false);
         setIsArbiter(false);
@@ -56,13 +54,10 @@ export function useAdminStatus() {
       const ownerStr = String(owner).toLowerCase().trim();
       const walletStr = (wallet.address || "").toLowerCase().trim();
 
-      console.log("Owner (normalized):", ownerStr);
-      console.log("Wallet (normalized):", walletStr);
 
       // Check if current wallet is the owner
       const ownerCheck = ownerStr === walletStr;
       setIsOwner(ownerCheck);
-      console.log("Is owner:", ownerCheck);
 
       // Check if user is an authorized arbiter
       let arbiterCheck = false;
@@ -71,9 +66,7 @@ export function useAdminStatus() {
           arbiterCheck = await contractService.isAuthorizedArbiter(
             wallet.address
           );
-          console.log("Is arbiter:", arbiterCheck);
         } catch (error) {
-          console.error("Error checking arbiter status:", error);
         }
       }
       setIsArbiter(arbiterCheck);
@@ -83,12 +76,10 @@ export function useAdminStatus() {
       const hasDelegationForUser = activeDelegations.some(
         (d) => d.delegatee.toLowerCase() === wallet.address?.toLowerCase()
       );
-      console.log("Has delegation:", hasDelegationForUser);
 
       // User is admin if they are owner, arbiter, or have delegation
       setIsAdmin(ownerCheck || arbiterCheck || hasDelegationForUser);
     } catch (error) {
-      console.error("Error checking admin status:", error);
       setIsAdmin(false);
       setIsOwner(false);
       setIsArbiter(false);

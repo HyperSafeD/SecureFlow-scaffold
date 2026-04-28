@@ -1,4 +1,9 @@
 import { useState, useEffect } from "react";
+import {
+  uploadMilestoneFile,
+  isApiConfigured,
+  type UploadedFile,
+} from "@/lib/api";
 import { useWeb3 } from "@/contexts/web3-context";
 import { CONTRACTS } from "@/lib/web3/config";
 
@@ -43,11 +48,12 @@ import {
   CheckCircle,
   Calendar,
   Play,
-  // RefreshCw, // Unused
   Clock,
   Star,
   ChevronDown,
   ChevronUp,
+  AlertTriangle,
+  Scale,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -59,7 +65,8 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, MessageCircle as MessageCircleFreelancer } from "lucide-react";
+import { Link } from "react-router-dom";
 
 interface Escrow {
   id: string;
@@ -87,6 +94,69 @@ interface Milestone {
   disputeReason?: string;
   rejectionReason?: string;
   resolutionAmount?: string; // Amount paid to beneficiary in resolution (0 = client wins, >0 = freelancer wins)
+}
+
+function OverdueFreelancerBanner({
+  escrowId,
+  onRaiseDispute,
+}: {
+  escrowId: string;
+  onRaiseDispute: (escrowId: string, reason: string) => void;
+}) {
+  const [show, setShow] = useState(false);
+  const [reason, setReason] = useState("");
+
+  return (
+    <div className="mt-3 pt-3 border-t border-orange-200 dark:border-orange-800 space-y-2">
+      <div className="flex items-start gap-2 p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700">
+        <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />
+        <p className="text-sm text-orange-700 dark:text-orange-400">
+          The project deadline has passed. If the client is unresponsive or the situation is unfair, raise a dispute for arbiter review.
+        </p>
+      </div>
+      {!show ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 w-full border-red-300 dark:border-red-700 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+          onClick={() => setShow(true)}
+        >
+          <Scale className="h-3.5 w-3.5" />
+          Request Arbitration
+        </Button>
+      ) : (
+        <div className="space-y-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700">
+          <p className="text-xs font-medium text-red-700 dark:text-red-400">
+            State your case — arbiters will review both sides fairly
+          </p>
+          <Textarea
+            rows={3}
+            placeholder="Describe the work you've done, why you deserve payment, and what resolution you're requesting..."
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="text-sm"
+          />
+          <div className="flex gap-2 justify-end">
+            <Button variant="ghost" size="sm" onClick={() => { setShow(false); setReason(""); }}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={!reason.trim()}
+              onClick={() => {
+                onRaiseDispute(escrowId, reason);
+                setShow(false);
+                setReason("");
+              }}
+            >
+              Submit to Arbiters
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function FreelancerPage() {
@@ -126,6 +196,14 @@ export default function FreelancerPage() {
   >(null);
   const [milestoneDescriptions, setMilestoneDescriptions] = useState<
     Record<string, string>
+  >({});
+  /** Per-milestone attachment files that have been selected but not yet uploaded */
+  const [milestoneFiles, setMilestoneFiles] = useState<Record<string, File | null>>({});
+  /** Per-milestone upload state */
+  const [milestoneUploading, setMilestoneUploading] = useState<Record<string, boolean>>({});
+  /** Per-milestone already-uploaded file info */
+  const [milestoneAttachments, setMilestoneAttachments] = useState<
+    Record<string, { url: string; filename: string } | null>
   >({});
   const [showDisputeDialog, setShowDisputeDialog] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
@@ -208,9 +286,6 @@ export default function FreelancerPage() {
 
       // Get next escrow ID from blockchain (not hardcoded)
       const nextEscrowId = await contractService.getNextEscrowId();
-      console.log(
-        `[FreelancerPage] next_escrow_id from blockchain: ${nextEscrowId}`
-      );
 
       // Get current ledger sequence once (needed for timestamp conversion)
       let currentLedger = 0;
@@ -222,10 +297,6 @@ export default function FreelancerPage() {
         const latestLedger = await rpcServer.getLatestLedger();
         currentLedger = latestLedger.sequence;
       } catch (error) {
-        console.warn(
-          "Could not fetch current ledger, using approximate timestamp:",
-          error
-        );
         // Fallback: use current time as approximation
         const SECONDS_PER_LEDGER = 5;
         currentLedger = Math.floor(Date.now() / 1000 / SECONDS_PER_LEDGER);
@@ -237,11 +308,9 @@ export default function FreelancerPage() {
       const maxEscrowsToCheck = Math.min(nextEscrowId - 1, 20);
       for (let i = 1; i <= maxEscrowsToCheck; i++) {
         try {
-          console.log(`[FreelancerPage] Checking escrow ${i}...`);
           const escrowData = await contractService.getEscrow(i);
 
           if (!escrowData) {
-            console.log(`[FreelancerPage] Escrow ${i} does not exist`);
             continue;
           }
 
@@ -251,9 +320,6 @@ export default function FreelancerPage() {
             escrowData.freelancer.toLowerCase().trim() ===
               wallet.address.toLowerCase().trim();
 
-          console.log(
-            `[FreelancerPage] Escrow ${i} freelancer: ${escrowData.freelancer}, isBeneficiary: ${isBeneficiary}`
-          );
 
           if (isBeneficiary) {
             // Convert ledger sequence to approximate timestamp
@@ -351,9 +417,6 @@ export default function FreelancerPage() {
                 };
                 const status = statusMap[statusNumber] || "pending";
 
-                console.log(
-                  `[FreelancerPage] Milestone ${i}-${index} status: ${rawStatus} (${typeof rawStatus}) -> ${statusNumber} -> ${status}`
-                );
 
                 // Convert ledger sequences to timestamps
                 const submittedAtLedger = m.submitted_at || 0;
@@ -400,9 +463,13 @@ export default function FreelancerPage() {
             // Convert contract data to our Escrow type
             const statusNumber = escrowData.status || 0;
             const statusString = getStatusFromNumber(statusNumber);
-            console.log(
-              `[FreelancerPage] Escrow ${i} status: ${statusNumber} -> ${statusString}`
-            );
+
+            const deadlineLedgerFL = escrowData.deadline || 0;
+            const deadlineAtFL =
+              deadlineLedgerFL > 0
+                ? Date.now() +
+                  (deadlineLedgerFL - currentLedger) * SECONDS_PER_LEDGER * 1000
+                : undefined;
 
             const escrow: Escrow = {
               id: i.toString(),
@@ -410,31 +477,25 @@ export default function FreelancerPage() {
               beneficiary: escrowData.freelancer || "",
               token: escrowData.token || "native",
               totalAmount: escrowData.amount || "0",
-              releasedAmount: escrowData.paid_amount || "0", // Get paid_amount from escrow
+              releasedAmount: escrowData.paid_amount || "0",
               status: statusString,
-              createdAt: approxCreatedAt, // Approximate timestamp from ledger sequence
-              duration: durationInSeconds, // Duration in seconds
+              createdAt: approxCreatedAt,
+              duration: durationInSeconds,
+              deadlineAt: deadlineAtFL,
               milestones: allMilestones,
               projectTitle: escrowData.project_title || "",
               projectDescription: escrowData.project_description || "",
-              isOpenJob: false, // Not an open job if freelancer is assigned
+              isOpenJob: false,
               milestoneCount: allMilestones.length,
             };
 
             freelancerEscrows.push(escrow);
-            console.log(
-              `[FreelancerPage] Added escrow ${i} to freelancer escrows`
-            );
           }
         } catch (error) {
-          console.error(`[FreelancerPage] Error checking escrow ${i}:`, error);
           continue;
         }
       }
 
-      console.log(
-        `[FreelancerPage] Found ${freelancerEscrows.length} escrows for freelancer`
-      );
       setEscrows(freelancerEscrows);
 
       // Fetch badge and rating for the freelancer
@@ -449,7 +510,6 @@ export default function FreelancerPage() {
           setAverageRating(ratingData.average);
           setRatingCount(ratingData.count);
         } catch (error) {
-          console.error("[FreelancerPage] Error fetching badge/rating:", error);
         }
       }
 
@@ -468,10 +528,6 @@ export default function FreelancerPage() {
               };
             }
           } catch (error) {
-            console.error(
-              `[FreelancerPage] Error fetching rating for escrow ${escrow.id}:`,
-              error
-            );
           }
         }
       }
@@ -562,10 +618,6 @@ export default function FreelancerPage() {
       // Refresh escrows
       await fetchFreelancerEscrows();
     } catch (error: any) {
-      console.error("Start work error:", error);
-      console.error("Error message:", error.message);
-      console.error("Error code:", error.code);
-      console.error("Error data:", error.data);
 
       // Check for specific error codes
       const errorMessage = error.message || "";
@@ -626,7 +678,50 @@ export default function FreelancerPage() {
 
   const submitMilestone = async (escrowId: string, milestoneIndex: number) => {
     const milestoneKey = `${escrowId}-${milestoneIndex}`;
-    const description = milestoneDescriptions[milestoneKey] || "";
+    const baseDescription = milestoneDescriptions[milestoneKey] || "";
+
+    // Upload any pending file attachment before submitting.
+    // Keep a local reference so we can use it immediately without waiting
+    // for the React state update cycle.
+    let localAttachment = milestoneAttachments[milestoneKey] ?? null;
+    const pendingFile = milestoneFiles[milestoneKey];
+    if (pendingFile && isApiConfigured() && !localAttachment) {
+      try {
+        setMilestoneUploading((prev) => ({ ...prev, [milestoneKey]: true }));
+        toast({ title: "Uploading attachment…", description: pendingFile.name });
+        const uploaded: UploadedFile = await uploadMilestoneFile(
+          pendingFile,
+          escrowId,
+          milestoneIndex,
+        );
+        localAttachment = { url: uploaded.url, filename: uploaded.filename };
+        setMilestoneAttachments((prev) => ({
+          ...prev,
+          [milestoneKey]: localAttachment!,
+        }));
+        setMilestoneFiles((prev) => ({ ...prev, [milestoneKey]: null }));
+      } catch (uploadErr: any) {
+        toast({
+          title: "File upload failed",
+          description: uploadErr.message || "Could not upload attachment",
+          variant: "destructive",
+        });
+        setMilestoneUploading((prev) => ({ ...prev, [milestoneKey]: false }));
+        return;
+      } finally {
+        setMilestoneUploading((prev) => ({ ...prev, [milestoneKey]: false }));
+      }
+    }
+
+    // Build the final description synchronously using the local reference.
+    const description = localAttachment
+      ? `${baseDescription}\n\n[Attachment: ${localAttachment.filename}](${localAttachment.url})`.trim()
+      : baseDescription;
+
+    // Keep UI state in sync too (non-blocking)
+    if (localAttachment) {
+      setMilestoneDescriptions((prev) => ({ ...prev, [milestoneKey]: description }));
+    }
 
     // Check if milestone has already been submitted
     if (submittedMilestones.has(milestoneKey)) {
@@ -819,8 +914,18 @@ export default function FreelancerPage() {
       const milestoneKey = `${escrowId}-${milestoneIndex}`;
       setSubmittedMilestones((prev) => new Set([...prev, milestoneKey]));
 
-      // Clear form
+      // Clear form and attachments
       setMilestoneDescriptions((prev) => {
+        const updated = { ...prev };
+        delete updated[milestoneKey];
+        return updated;
+      });
+      setMilestoneAttachments((prev) => {
+        const updated = { ...prev };
+        delete updated[milestoneKey];
+        return updated;
+      });
+      setMilestoneFiles((prev) => {
         const updated = { ...prev };
         delete updated[milestoneKey];
         return updated;
@@ -980,6 +1085,65 @@ export default function FreelancerPage() {
     }
   };
 
+  const raiseOverdueDispute = async (escrowId: string, reason: string) => {
+    try {
+      const { ContractService } = await import("@/lib/web3/contract-service");
+      const contractService = new ContractService(CONTRACTS.SECUREFLOW_ESCROW);
+      toast({
+        title: "Raising overdue dispute…",
+        description: "Please confirm the transaction in your wallet",
+      });
+      await contractService.raiseOverdueDispute({
+        escrow_id: Number(escrowId),
+        requester: wallet.address || "",
+        reason,
+      });
+      toast({
+        title: "Dispute submitted",
+        description: "Arbiters have been notified and will review both sides fairly",
+      });
+
+      // Notify arbiters
+      const escrow = escrows.find((e) => e.id === escrowId);
+      try {
+        const authorizedArbiters = await contractService.getAuthorizedArbiters();
+        for (const arbAddr of authorizedArbiters) {
+          addNotification(
+            {
+              type: "dispute",
+              title: "Overdue Dispute — Freelancer",
+              message: `Freelancer raised a dispute on "${escrow?.projectTitle?.slice(0, 50) || `Project #${escrowId}`}"`,
+              actionUrl: `/admin?escrow=${escrowId}`,
+              data: { escrowId, requester: wallet.address, reason },
+            },
+            [arbAddr],
+          );
+        }
+        // Notify client too
+        if (escrow?.payer) {
+          addNotification(
+            {
+              type: "dispute",
+              title: "Overdue Dispute Raised",
+              message: `A freelancer raised a dispute on your project "${escrow?.projectTitle?.slice(0, 50) || `#${escrowId}`}"`,
+              actionUrl: `/dashboard?escrow=${escrowId}`,
+              data: { escrowId, reason },
+            },
+            [escrow.payer],
+          );
+        }
+      } catch { /* non-critical */ }
+
+      await fetchFreelancerEscrows();
+    } catch (error: any) {
+      toast({
+        title: "Failed to raise dispute",
+        description: error.message || "Transaction failed",
+        variant: "destructive",
+      });
+    }
+  };
+
   const getStatusFromNumber = (
     status: number
   ): "pending" | "active" | "completed" | "disputed" => {
@@ -1114,19 +1278,27 @@ export default function FreelancerPage() {
               Manage your assigned projects and track your earnings
             </p>
           </div>
-          {/* Refresh Button */}
-          <Button
-            variant="outline"
-            size="default"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="flex items-center gap-2"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
+          {/* Header actions */}
+          <div className="flex items-center gap-2">
+            <Link to="/messages">
+              <Button variant="outline" size="default" className="flex items-center gap-2">
+                <MessageCircleFreelancer className="h-4 w-4" />
+                Messages
+              </Button>
+            </Link>
+            <Button
+              variant="outline"
+              size="default"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-2"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -1910,6 +2082,81 @@ export default function FreelancerPage() {
                                         />
                                       </div>
 
+                                      {/* File attachment */}
+                                      {isApiConfigured() && (
+                                        <div>
+                                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                                            Attach File{" "}
+                                            <span className="font-normal text-gray-400 dark:text-gray-500">
+                                              (optional · PDF, images, docs · max 10 MB)
+                                            </span>
+                                          </label>
+                                          {milestoneAttachments[milestoneKey] ? (
+                                            <div className="flex items-center gap-2 p-2 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 text-sm">
+                                              <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                                              <span className="truncate text-green-700 dark:text-green-300">
+                                                {milestoneAttachments[milestoneKey]!.filename}
+                                              </span>
+                                              <button
+                                                type="button"
+                                                className="ml-auto text-gray-400 hover:text-red-500 text-xs shrink-0"
+                                                onClick={() =>
+                                                  setMilestoneAttachments(
+                                                    (prev) => ({
+                                                      ...prev,
+                                                      [milestoneKey]: null,
+                                                    })
+                                                  )
+                                                }
+                                              >
+                                                Remove
+                                              </button>
+                                            </div>
+                                          ) : milestoneFiles[milestoneKey] ? (
+                                            <div className="flex items-center gap-2 p-2 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 text-sm">
+                                              <Clock className="h-4 w-4 text-blue-500 shrink-0 animate-pulse" />
+                                              <span className="truncate text-blue-700 dark:text-blue-300">
+                                                {milestoneFiles[milestoneKey]!.name}
+                                              </span>
+                                              <button
+                                                type="button"
+                                                className="ml-auto text-gray-400 hover:text-red-500 text-xs shrink-0"
+                                                onClick={() =>
+                                                  setMilestoneFiles((prev) => ({
+                                                    ...prev,
+                                                    [milestoneKey]: null,
+                                                  }))
+                                                }
+                                              >
+                                                Remove
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <label className="flex items-center justify-center gap-2 p-2.5 rounded border-2 border-dashed border-gray-200 dark:border-gray-600 cursor-pointer hover:border-primary/50 transition-colors text-sm text-gray-500 dark:text-gray-400">
+                                              <input
+                                                type="file"
+                                                className="sr-only"
+                                                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.zip,.doc,.docx"
+                                                onChange={(e) => {
+                                                  const f =
+                                                    e.target.files?.[0];
+                                                  if (f)
+                                                    setMilestoneFiles(
+                                                      (prev) => ({
+                                                        ...prev,
+                                                        [milestoneKey]: f,
+                                                      })
+                                                    );
+                                                }}
+                                              />
+                                              <span>
+                                                Click to attach a file
+                                              </span>
+                                            </label>
+                                          )}
+                                        </div>
+                                      )}
+
                                       <div className="flex gap-2">
                                         {canSubmit && (
                                           <Button
@@ -1923,13 +2170,16 @@ export default function FreelancerPage() {
                                             disabled={
                                               submittingMilestone ===
                                                 milestoneKey ||
+                                              milestoneUploading[milestoneKey] ||
                                               !milestoneDescriptions[
                                                 milestoneKey
                                               ]?.trim()
                                             }
                                           >
-                                            {submittingMilestone ===
-                                            milestoneKey
+                                            {milestoneUploading[milestoneKey]
+                                              ? "Uploading…"
+                                              : submittingMilestone ===
+                                                milestoneKey
                                               ? "Submitting..."
                                               : "Submit Milestone"}
                                           </Button>
@@ -1972,6 +2222,23 @@ export default function FreelancerPage() {
                             })()}
                           </div>
                         )}
+
+                        {/* Overdue dispute banner (freelancer side) */}
+                        {(() => {
+                          const now = Date.now();
+                          const deadlineAt = escrow.deadlineAt ?? 0;
+                          const isOverdue = deadlineAt > 0 && now > deadlineAt;
+                          const isActive =
+                            escrow.status === "active" ||
+                            escrow.status === "pending";
+                          if (!isOverdue || !isActive) return null;
+                          return (
+                            <OverdueFreelancerBanner
+                              escrowId={escrow.id}
+                              onRaiseDispute={raiseOverdueDispute}
+                            />
+                          );
+                        })()}
 
                         {/* Actions */}
                         <div className="flex gap-3">

@@ -4,6 +4,8 @@ import express from "express";
 import { requireApiSecret } from "./middleware/auth.js";
 import { aiRouter } from "./routes/ai.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { uploadRouter } from "./routes/upload.js";
+import { messagesRouter } from "./routes/messages.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 8787;
@@ -15,7 +17,7 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({ limit: "10mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({
@@ -29,6 +31,8 @@ const auth = requireApiSecret(apiSecret);
 
 app.use("/v1/ai", auth, aiRouter);
 app.use("/v1/notifications", auth, notificationsRouter);
+app.use("/v1/upload", auth, uploadRouter);
+app.use("/v1/messages", auth, messagesRouter);
 
 app.listen(port, () => {
   console.log(`secureflow-api listening on :${port}`);

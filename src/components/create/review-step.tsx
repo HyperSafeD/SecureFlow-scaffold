@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Clock, DollarSign, User, Zap } from "lucide-react";
+import { AlertTriangle, Clock, DollarSign, User, Zap } from "lucide-react";
 import { WHITELISTED_TOKENS } from "./project-details-step";
 // Stellar doesn't use smart accounts - removed useSmartAccount import
 
@@ -24,6 +24,7 @@ interface ReviewStepProps {
   isSubmitting: boolean;
   isContractPaused: boolean;
   isOnCorrectNetwork?: boolean;
+  walletBalance?: string;
 }
 
 export function ReviewStep({
@@ -32,6 +33,7 @@ export function ReviewStep({
   isSubmitting,
   isContractPaused,
   isOnCorrectNetwork = true,
+  walletBalance,
 }: ReviewStepProps) {
   // Stellar doesn't use smart accounts
   const isSmartAccountReady = false;
@@ -43,6 +45,11 @@ export function ReviewStep({
   const isTotalValid =
     Math.abs(totalMilestoneAmount - Number.parseFloat(formData.totalBudget)) <
     0.01;
+
+  const budget = Number.parseFloat(formData.totalBudget || "0");
+  const balance = Number.parseFloat(walletBalance || "0");
+  const hasInsufficientBalance =
+    formData.useNativeToken && balance > 0 && budget > balance;
 
   const tokenSymbol = formData.useNativeToken 
     ? "Native XLM" 
@@ -126,6 +133,12 @@ export function ReviewStep({
                 ⚠️ Milestone amounts don't match project budget
               </p>
             )}
+            {hasInsufficientBalance && (
+              <p className="text-sm text-destructive mt-3 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Insufficient balance — you have {balance.toFixed(2)} XLM but need {budget.toFixed(2)} XLM
+              </p>
+            )}
           </div>
         </div>
 
@@ -135,38 +148,25 @@ export function ReviewStep({
             onClick={async (e) => {
               e.preventDefault();
               e.stopPropagation();
-              console.log("Create Escrow button clicked", {
-                isSubmitting,
-                isContractPaused,
-                isTotalValid,
-                isOnCorrectNetwork,
-                onConfirmType: typeof onConfirm,
-                onConfirmExists: !!onConfirm,
-              });
               if (
                 !isSubmitting &&
                 !isContractPaused &&
                 isTotalValid &&
-                isOnCorrectNetwork
+                isOnCorrectNetwork &&
+                !hasInsufficientBalance
               ) {
-                console.log("Calling onConfirm() now...");
                 try {
                   await onConfirm();
-                  console.log("onConfirm() completed successfully");
                 } catch (error) {
-                  console.error("Error in onConfirm():", error);
                 }
-              } else {
-                console.warn(
-                  "Button conditions not met, not calling onConfirm"
-                );
               }
             }}
             disabled={
               isSubmitting ||
               isContractPaused ||
               !isTotalValid ||
-              !isOnCorrectNetwork
+              !isOnCorrectNetwork ||
+              hasInsufficientBalance
             }
             className="flex-1 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >

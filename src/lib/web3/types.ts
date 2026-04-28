@@ -27,16 +27,18 @@ export interface Escrow {
   status: "pending" | "active" | "completed" | "disputed";
   createdAt: number;
   duration: number;
+  /** Deadline as Unix timestamp (ms), derived from on-chain ledger sequence */
+  deadlineAt?: number;
   milestones: Milestone[];
-  projectTitle?: string; // Project title from blockchain
-  projectDescription?: string; // Project description from blockchain
-  isOpenJob?: boolean; // true if no freelancer assigned yet
+  projectTitle?: string;
+  projectDescription?: string;
+  isOpenJob?: boolean;
   applications?: Application[];
-  applicationCount?: number; // real count from blockchain
-  isJobCreator?: boolean; // true if current user is the job creator (from blockchain)
-  isClient?: boolean; // true if current user is the client (payer)
-  isFreelancer?: boolean; // true if current user is the freelancer (beneficiary)
-  milestoneCount?: number; // total number of milestones for this escrow
+  applicationCount?: number;
+  isJobCreator?: boolean;
+  isClient?: boolean;
+  isFreelancer?: boolean;
+  milestoneCount?: number;
 }
 
 export interface EscrowStats {

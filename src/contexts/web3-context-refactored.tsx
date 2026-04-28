@@ -82,16 +82,13 @@ export function Web3ProviderRefactored({ children }: { children: ReactNode }) {
                 : "0";
               useWalletStore.getState().updateBalance(balance);
             } catch (error) {
-              console.error("Error fetching balance:", error);
               useWalletStore.getState().updateBalance("0");
             }
           }
         } catch (error) {
-          console.log("Wallet not connected");
         }
       }
     } catch (error) {
-      console.log("Wallet not connected");
     }
   };
 

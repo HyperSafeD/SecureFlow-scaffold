@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF } from "@/lib/web3/config";
 
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ProjectDetailsStep } from "@/components/create/project-details-step";
 import { MilestonesStep } from "@/components/create/milestones-step";
 import { ReviewStep } from "@/components/create/review-step";
@@ -22,6 +22,7 @@ interface Milestone {
 
 export default function CreateEscrowPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { wallet } = useWeb3();
   // Stellar doesn't use smart accounts
   // const { executeTransaction, isSmartAccountReady } = useSmartAccount();
@@ -86,12 +87,14 @@ export default function CreateEscrowPage() {
     }
   };
 
+  const prefillFreelancer = searchParams.get("freelancer") ?? "";
+
   const [formData, setFormData] = useState({
     projectTitle: "",
     projectDescription: "",
     duration: "",
     totalBudget: "",
-    beneficiary: "",
+    beneficiary: prefillFreelancer,
     token: "", // Stellar: use empty string for native XLM, or contract address for tokens
     useNativeToken: false,
     isOpenJob: false,
@@ -269,11 +272,6 @@ export default function CreateEscrowPage() {
   };
 
   const handleSubmit = async () => {
-    console.log("=== handleSubmit STARTED ===");
-    console.log("Wallet state:", {
-      isConnected: wallet.isConnected,
-      address: wallet.address,
-    });
 
     if (!wallet.isConnected) {
       toast({
@@ -298,19 +296,10 @@ export default function CreateEscrowPage() {
     // For native XLM, token can be empty string or null
     // For custom tokens, token should be set
     // This check is not needed - the contract handles both cases
-    console.log("Token check:", {
-      useNativeToken: formData.useNativeToken,
-      token: formData.token,
-    });
 
     setIsSubmitting(true);
 
     try {
-      console.log("handleSubmit called", {
-        walletConnected: wallet.isConnected,
-        walletAddress: wallet.address,
-        formData,
-      });
 
       // Stellar: Handle token approval if using a custom token (not native XLM)
       if (
@@ -347,11 +336,6 @@ export default function CreateEscrowPage() {
       if (formData.useNativeToken || !formData.token || formData.token === "") {
         const walletBalance = Number.parseFloat(wallet.balance || "0");
         const requiredBalance = Number.parseFloat(formData.totalBudget);
-        console.log("Balance check:", {
-          walletBalance,
-          requiredBalance,
-          hasEnough: walletBalance >= requiredBalance,
-        });
         if (walletBalance < requiredBalance) {
           throw new Error(
             `Insufficient XLM balance. You have ${walletBalance.toFixed(4)} XLM but need ${formData.totalBudget} XLM.`
@@ -404,18 +388,20 @@ export default function CreateEscrowPage() {
         project_description: formData.projectDescription,
       });
 
-      console.log("Escrow created successfully, ID:", escrowId);
-      console.log(
-        "Check the browser console for transaction hash and StellarExpert link"
-      );
 
       // Navigate after successful creation
       setTimeout(() => {
         navigate(formData.isOpenJob ? "/jobs" : "/dashboard");
       }, 2000);
     } catch (error: any) {
-      console.error("Error creating escrow:", error);
-      // Error toast is handled by the useCreateEscrow hook
+      // Show a toast for any error not already handled by the mutation's onError
+      if (!createEscrow.isError) {
+        toast({
+          title: "Action failed",
+          description: error?.message || "Something went wrong. Please try again.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -573,6 +559,7 @@ export default function CreateEscrowPage() {
                   isSubmitting={isSubmitting || createEscrow.isPending}
                   isContractPaused={isContractPaused}
                   isOnCorrectNetwork={isOnCorrectNetwork}
+                  walletBalance={wallet.balance}
                 />
               </motion.div>
             )}
