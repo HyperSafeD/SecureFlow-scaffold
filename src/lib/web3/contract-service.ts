@@ -3177,6 +3177,14 @@ export class ContractService {
    * Stellar fee-bump transaction (admin wallet is the fee source) and submits
    * it.  Applicants therefore need zero XLM for gas.
    */
+  /**
+   * Gasless variant of applyToJob.
+   *
+   * Builds the apply_to_job transaction manually (matching the pattern already
+   * used by web3-context.tsx) so the source account is always the user's wallet.
+   * After signing, the XDR is sent to the backend which wraps it in a Stellar
+   * fee-bump transaction — admin wallet pays all fees.
+   */
   async applyToJobGasless(params: {
     escrow_id: number;
     cover_letter: string;
@@ -3186,24 +3194,38 @@ export class ContractService {
     const { address } = useWalletStore.getState();
     if (!address) throw new Error("Wallet not connected");
 
-    // Simulate to build the prepared transaction
-    const assembledTx = await this.client.apply_to_job({
-      escrow_id: params.escrow_id,
-      cover_letter: params.cover_letter,
-      proposed_timeline: params.proposed_timeline,
-      freelancer: params.freelancer,
-    });
+    // Build the transaction manually so the source account is the user's wallet
+    const contract = new Contract(this.contractId);
+    const sourceAccount = await this.rpcServer.getAccount(address);
 
-    const tx = TransactionBuilder.fromXDR(
-      assembledTx.toXDR(),
-      this.network.networkPassphrase
-    );
+    const escrowIdScVal   = nativeToScVal(params.escrow_id,         { type: "u32" });
+    const coverLetterScVal = nativeToScVal(params.cover_letter,     { type: "string" });
+    const timelineScVal    = nativeToScVal(params.proposed_timeline, { type: "u32" });
+    const freelancerScVal  = nativeToScVal(params.freelancer,        { type: "address" });
 
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: "100",
+      networkPassphrase: this.network.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          "apply_to_job",
+          escrowIdScVal,
+          coverLetterScVal,
+          timelineScVal,
+          freelancerScVal
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    // Simulate
     const simulation = await this.rpcServer.simulateTransaction(tx);
 
     if ("errorResult" in simulation && simulation.errorResult) {
-      const val = (simulation.errorResult as any).value?.() || simulation.errorResult;
-      throw new Error(`Simulation failed: ${val}`);
+      const val =
+        (simulation.errorResult as any).value?.() ?? simulation.errorResult;
+      throw new Error(`Simulation failed: ${String(val)}`);
     }
 
     const prepared = await this.rpcServer.prepareTransaction(tx);
@@ -3221,10 +3243,10 @@ export class ContractService {
         xdr.SorobanAuthorizationEntry.fromXDR(s, "base64")
       );
 
-      const operations = prepared.operations;
-      if (!operations?.length) throw new Error("No operations in prepared tx");
+      const preparedOps = prepared.operations;
+      if (!preparedOps?.length) throw new Error("No operations in prepared tx");
 
-      const op = operations[0] as any;
+      const op = preparedOps[0] as any;
       const hostFn = op.function || op.hostFunction;
       const newOp = Operation.invokeHostFunction({
         function: hostFn as xdr.HostFunction,

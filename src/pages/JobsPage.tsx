@@ -457,10 +457,12 @@ export default function JobsPage() {
 
       // Refresh the ongoing projects count
       await countOngoingProjects();
-    } catch (error) {
+    } catch (error: any) {
+      const msg =
+        error?.message || "Could not submit your application. Please try again.";
       toast({
         title: "Application Failed",
-        description: "Could not submit your application. Please try again.",
+        description: msg,
         variant: "destructive",
       });
     } finally {
