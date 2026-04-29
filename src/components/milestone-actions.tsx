@@ -257,6 +257,20 @@ export function MilestoneActions({
             }),
           );
         }
+        if (actionType === "approve") {
+          // Notify freelancer that the milestone was approved
+          if (beneficiaryAddress) {
+            addNotification(
+              createMilestoneNotification("approved", escrowId, milestoneIndex, {
+                clientName: wallet.address
+                  ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
+                  : "Client",
+              }),
+              [beneficiaryAddress],
+            );
+          }
+        }
+
         if (actionType === "reject") {
           window.dispatchEvent(
             new CustomEvent("milestoneRejected", {

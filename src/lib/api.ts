@@ -93,7 +93,7 @@ export async function postRewriteText(body: { text: string }): Promise<{
 
 export type RemoteNotificationRow = {
   id: string;
-  type: "milestone" | "dispute" | "escrow" | "application";
+  type: "milestone" | "dispute" | "escrow" | "application" | "message";
   title: string;
   message: string;
   read: boolean;
@@ -125,7 +125,7 @@ export async function patchNotificationRead(
 
 export async function postNotification(body: {
   wallet_address: string;
-  type: "milestone" | "dispute" | "escrow" | "application";
+  type: "milestone" | "dispute" | "escrow" | "application" | "message";
   title: string;
   message: string;
   action_url?: string;

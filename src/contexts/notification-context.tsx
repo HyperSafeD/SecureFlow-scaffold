@@ -45,7 +45,7 @@ function mergeRemoteNotifications(
 
 export interface Notification {
   id: string;
-  type: "milestone" | "dispute" | "escrow" | "application";
+  type: "milestone" | "dispute" | "escrow" | "application" | "message";
   title: string;
   message: string;
   timestamp: Date;
