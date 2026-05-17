@@ -9,13 +9,14 @@
     "dev:clients": "stellar scaffold watch --build-clients",
     "prebuild": "(command -v stellar >/dev/null 2>&1 && stellar scaffold build --build-clients) || echo 'Warning: stellar scaffold not available, using committed contracts'",
     "build": "tsc -b && vite build",
-    "install:contracts": "npm install --workspace=packages && npm run build --workspace=packages",
+    "install:contracts": "npm install --workspace=src/contracts/generated && npm run build --workspace=src/contracts/generated",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier . --write"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "src/contracts/generated"
   ],
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.9.5",
